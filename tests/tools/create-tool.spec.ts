@@ -1,7 +1,6 @@
 import z from "zod";
 
-import { AgentTool, ToolBase, type ToolClass, type ToolConfiguration } from "../../src/tools/tool-decorator.js";
-import { ToolRegistry } from "../../src/tools/tool-registry.js";
+import { AgentTool, ToolBase, ToolRegistry, type ToolClass, type ToolConfiguration } from "@hiddendevs/agent-framework";
 
 describe("tool()", () => {
     beforeEach(() => {

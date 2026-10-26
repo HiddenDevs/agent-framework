@@ -1,3 +1,4 @@
+import { ToolCollector, type ToolCollectorOptions } from "./tool-collector.js";
 import type { Tool, ToolClass } from "./tool-decorator.js";
 
 export class ToolRegistry {
@@ -28,5 +29,9 @@ export class ToolRegistry {
     /** Clears all registered tool instances. */
     public static clearToolInstances(): void {
         this.TOOL_INSTANCES.clear();
+    }
+
+    public static async load(directory: string | readonly string[], options?: ToolCollectorOptions): Promise<void> {
+        await ToolCollector.collect(directory, options);
     }
 }
