@@ -1,0 +1,69 @@
+{
+    "name": "@hiddendevs/agent-framework",
+    "version": "1.0.0",
+    "description": "Provides a framework for building agents",
+    "repository": {
+        "type": "git",
+        "url": "https://github.com/hiddendevs/agent-framework.git"
+    },
+    "homepage": "https://github.com/HiddenDevs/agent-framework#readme",
+    "bugs": {
+        "url": "https://github.com/hiddendevs/agent-framework/issues"
+    },
+    "keywords": [
+        "ai",
+        "agent",
+        "framework",
+        "hidden devs",
+        "agentic",
+        "multi-agent",
+        "collaborative",
+        "ai agents"
+    ],
+    "files": [
+        "dist",
+        "README.md"
+    ],
+    "type": "module",
+    "license": "MIT",
+    "publishConfig": {
+        "access": "public"
+    },
+    "main": "./dist/index.js",
+    "types": "./dist/index.d.ts",
+    "exports": {
+        ".": {
+            "types": "./dist/index.d.ts",
+            "import": "./dist/index.js",
+            "require": "./dist/index.js"
+        }
+    },
+    "scripts": {
+        "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
+        "build": "npm run clean && tsc -p tsconfig.build.json",
+        "prepublishOnly": "npm run build",
+        "typecheck": "tsc -p tsconfig.json --noEmit",
+        "test": "npm run build && vitest run",
+        "lint": "eslint .",
+        "lint:fix": "eslint . --fix",
+        "format": "prettier --write .",
+        "format:check": "prettier --check ."
+    },
+    "devDependencies": {
+        "@eslint/js": "^10.0.1",
+        "@types/node": "^22.20.5",
+        "eslint": "^10.13.0",
+        "eslint-config-prettier": "^10.1.8",
+        "globals": "^17.13.0",
+        "prettier": "^3.9.10",
+        "typescript": "^5.9.0",
+        "typescript-eslint": "^8.72.0",
+        "vitest": "^5.0.5"
+    },
+    "peerDependencies": {
+        "zod": "^4.6.7"
+    },
+    "engines": {
+        "node": ">=22.12.0"
+    }
+}
