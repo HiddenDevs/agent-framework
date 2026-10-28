@@ -115,9 +115,10 @@ Tests import from `@hiddendevs/agent-framework`, which resolves to the built `di
 
 ```bash
 npm test            # build, then vitest run
-npm run typecheck   # tsc --noEmit over src and tests
+npm run typecheck   # build, then tsc --noEmit over src and tests
 npm run lint        # eslint
 ```
 
-Types in tests are checked against `dist`, so run the build (or `npm test`) before `npm run typecheck` after
-changing the public API.
+Types in tests are checked against `dist`. The `pretypecheck` npm lifecycle script rebuilds it automatically
+before `npm run typecheck`, so the command works on a fresh checkout and after public API changes.
+Use `npm run typecheck` locally and in CI rather than invoking `tsc --noEmit` directly, which skips that build.
