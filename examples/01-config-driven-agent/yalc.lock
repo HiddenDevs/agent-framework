@@ -2,7 +2,7 @@
   "version": "v1",
   "packages": {
     "@hiddendevs/agent-framework": {
-      "signature": "bdaec28d48472b3b9ae28b4c08750591",
+      "signature": "07f423adccbedea0d9f0e150010ee348",
       "file": true
     }
   }
