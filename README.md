@@ -121,3 +121,9 @@ persist the configs yourself if they must survive a restart.
 
 Full documentation lives in [docs/](docs/README.md): getting started, architecture, tools, agents,
 configuration, runtime registration, providers, error handling and testing.
+
+## Examples
+
+Three complete TypeScript projects live in [examples/](examples/README.md): a config-driven agent, a runtime
+agent-registration API, and an offline custom-client/tool-injection demo. They use `yalc add
+@hiddendevs/agent-framework` to consume this checkout locally.
