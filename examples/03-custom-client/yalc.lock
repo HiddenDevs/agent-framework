@@ -1,0 +1,9 @@
+{
+  "version": "v1",
+  "packages": {
+    "@hiddendevs/agent-framework": {
+      "signature": "07f423adccbedea0d9f0e150010ee348",
+      "file": true
+    }
+  }
+}

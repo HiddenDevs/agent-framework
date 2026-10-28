@@ -59,3 +59,96 @@ including tools registered before the scan or through imported dependencies.
 Repeated scans use the runtime's module cache and do not rerun decorators.
 Consequently, clearing the registry does not make already imported modules
 register again; registry clearing is intended for test isolation, not hot reload.
+
+## Running agents from configuration
+
+Agents are described by plain config and built by `AgentFramework`. Tools under
+`toolPaths` are discovered, linted, and selected by name.
+
+```ts
+import { AgentFramework } from "@hiddendevs/agent-framework";
+
+const framework = await AgentFramework.create(
+    {
+        toolPaths: ["./dist/tools"],
+        providers: { main: { provider: "anthropic", model: "<model>", apiKey: process.env.API_KEY! } },
+        agents: {
+            researcher: {
+                provider: "main",
+                systemPrompt: "Research for {{ organization }}. Available: {{ tools | json }}",
+                context: { organization: "Acme" },
+                tools: ["search"],
+                outputSchema: {
+                    type: "object",
+                    required: ["answer"],
+                    properties: { answer: { type: "string", description: "The final answer" } },
+                },
+            },
+        },
+    },
+    // toolFactory: (ToolClass) => new ToolClass(services), // for tools with dependencies
+);
+
+const result = await (await framework.agent("researcher")).run("What is ...?", { organization: "Example Corp" });
+if (result.isOk) console.log(result.value.output);
+```
+
+Tool failures, invalid arguments and invalid structured output are returned to the
+model as error results so it can correct itself. `Result` is an error only when the
+run exhausts its budget (`AgentError`, which carries the transcript).
+`@anthropic-ai/sdk` and `openai` are optional peer dependencies; install the one you use.
+
+Configured output schemas are converted using Zod's built-in `z.fromJSONSchema()`, without a custom dialect.
+See [Output schemas and migration notes](docs/configuration.md#output-schemas) for validation semantics.
+
+### Prompt templates and context
+
+System prompts use [LiquidJS](https://liquidjs.com/) for variables, filters, loops and conditionals:
+
+```ts
+import { AgentBuilder } from "@hiddendevs/agent-framework";
+
+const agent = AgentBuilder.create(client)
+    .systemPrompt("Help {{ user.name }} at {{ organization }}. Tools: {{ tools | json }}")
+    .context({ organization: "Acme" })
+    .build();
+
+const result = await agent.run("Help with my order", { user: { name: "Ada" } });
+```
+
+Builder/config context supplies defaults; the second argument to `run` or `runConversation` shallowly overrides
+them for that call only. `tools` is reserved for the selected tool names. Missing variables throw unless guarded
+with a Liquid conditional or `default` filter. See [Agents: prompt context](docs/agents.md#prompt-context).
+
+**Migration:** replace `${tools}` with `{{ tools | json }}`. The old placeholder is now literal text.
+
+### Building temporary agents at runtime
+
+Build an agent directly from a config for the current request. The framework validates
+the config and returns a fresh agent without storing its config or instance.
+
+```ts
+const agent = await framework.createAgent(requestBody);
+const result = await agent.run(input, context);
+if (!result.isOk) return respond(502, result.error.message);
+return respond(200, result.value.output);
+```
+
+`createAgent` rejects on invalid config or client creation failure, like `framework.agent(name)`.
+Named agents supplied at startup remain available through `framework.agent(name)`.
+
+Temporary agents can only reference tools and providers that already exist. Authorize tool
+and provider selections and cap limits before accepting caller-supplied configs.
+`framework.loadTools(paths)` imports (and executes) modules, so call it only with trusted paths.
+See [Runtime agents](docs/runtime-registration.md) for request handling and migration.
+
+## Documentation
+
+Full documentation lives in [docs/](docs/README.md): getting started, architecture, tools, agents,
+configuration, temporary runtime agents, providers, error handling and testing.
+
+## Examples
+
+Three complete TypeScript projects live in [examples/](examples/README.md): a config-driven agent, a runtime
+agent API with request-scoped agents, and an offline custom-client/tool-injection demo. They use `yalc add
+@hiddendevs/agent-framework` to consume this checkout locally.

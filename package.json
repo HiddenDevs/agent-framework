@@ -42,6 +42,7 @@
         "clean": "node -e \"require('node:fs').rmSync('dist', { recursive: true, force: true })\"",
         "build": "npm run clean && tsc -p tsconfig.build.json",
         "prepublishOnly": "npm run build",
+        "pretypecheck": "npm run build",
         "typecheck": "tsc -p tsconfig.json --noEmit",
         "test": "npm run build && vitest run",
         "lint": "eslint .",
@@ -49,19 +50,34 @@
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },
+    "dependencies": {
+        "liquidjs": "^10.30.0"
+    },
     "devDependencies": {
+        "@anthropic-ai/sdk": "^1.3.0",
         "@eslint/js": "^10.0.1",
         "@types/node": "^22.20.5",
         "eslint": "^10.13.0",
         "eslint-config-prettier": "^10.1.8",
         "globals": "^17.13.0",
+        "openai": "^7.45.1",
         "prettier": "^3.9.10",
         "typescript": "^5.9.0",
         "typescript-eslint": "^8.72.0",
         "vitest": "^5.0.5"
     },
     "peerDependencies": {
+        "@anthropic-ai/sdk": "^1.3.0",
+        "openai": "^7.45.1",
         "zod": "^4.6.7"
+    },
+    "peerDependenciesMeta": {
+        "@anthropic-ai/sdk": {
+            "optional": true
+        },
+        "openai": {
+            "optional": true
+        }
     },
     "engines": {
         "node": ">=22.12.0"
