@@ -122,33 +122,33 @@ with a Liquid conditional or `default` filter. See [Agents: prompt context](docs
 
 **Migration:** replace `${tools}` with `{{ tools | json }}`. The old placeholder is now literal text.
 
-### Registering agents at runtime
+### Building temporary agents at runtime
 
-Agents can be added, replaced and removed on a running framework, e.g. from a generic
-"create agent" endpoint. Registration validates the whole config (schema, provider, tool
-names, output schema) and returns a `Result` instead of throwing.
+Build an agent directly from a config for the current request. The framework validates
+the config and returns a fresh agent without storing its config or instance.
 
 ```ts
-const created = framework.registerAgent("support-bot", requestBody, { replace: false });
-if (!created.isOk) return respond(400, created.error.message);
-
-framework.hasAgent("support-bot");
-framework.unregisterAgent("support-bot");
-framework.registerProvider("backup", { provider: "openai", model: "<model>", apiKey });
+const agent = await framework.createAgent(requestBody);
+const result = await agent.run(input, context);
+if (!result.isOk) return respond(502, result.error.message);
+return respond(200, result.value.output);
 ```
 
-Registered agents can only reference tools and providers that already exist, so config
-from untrusted callers cannot run new code. `framework.loadTools(paths)` imports (and
-executes) modules, so call it only with trusted paths. Registrations live in memory;
-persist the configs yourself if they must survive a restart.
+`createAgent` rejects on invalid config or client creation failure, like `framework.agent(name)`.
+Named agents supplied at startup remain available through `framework.agent(name)`.
+
+Temporary agents can only reference tools and providers that already exist. Authorize tool
+and provider selections and cap limits before accepting caller-supplied configs.
+`framework.loadTools(paths)` imports (and executes) modules, so call it only with trusted paths.
+See [Runtime agents](docs/runtime-registration.md) for request handling and migration.
 
 ## Documentation
 
 Full documentation lives in [docs/](docs/README.md): getting started, architecture, tools, agents,
-configuration, runtime registration, providers, error handling and testing.
+configuration, temporary runtime agents, providers, error handling and testing.
 
 ## Examples
 
 Three complete TypeScript projects live in [examples/](examples/README.md): a config-driven agent, a runtime
-agent-registration API, and an offline custom-client/tool-injection demo. They use `yalc add
+agent API with request-scoped agents, and an offline custom-client/tool-injection demo. They use `yalc add
 @hiddendevs/agent-framework` to consume this checkout locally.

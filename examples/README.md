@@ -45,7 +45,7 @@ each example.
 | Project                                             | Demonstrates                                                                      | Run         |
 | --------------------------------------------------- | --------------------------------------------------------------------------------- | ----------- |
 | [01-config-driven-agent](./01-config-driven-agent/) | Decorated tool discovery, config-driven agent, structured output, Anthropic       | `npm start` |
-| [02-runtime-agent-api](./02-runtime-agent-api/)     | A typed HTTP API for registering, listing, running and removing agents at runtime | `npm start` |
+| [02-runtime-agent-api](./02-runtime-agent-api/)     | A typed HTTP API that builds and runs a temporary agent per request               | `npm start` |
 | [03-custom-client](./03-custom-client/)             | Offline `ModelClient`, tool constructor dependencies, and a code-first builder    | `npm start` |
 
 Each project has its own README and environment-variable guidance. Run `npm run typecheck` to typecheck its

@@ -1,8 +1,8 @@
 # Runtime agent API
 
-A complete, dependency-light Node HTTP server showing how to let authorized developers create agents at runtime
-without redeploying. Agents may choose only the preinstalled `knowledge-search` tool and the configured OpenAI
-provider. Runtime registrations are in memory; this project intentionally leaves persistence to the host app.
+A complete, dependency-light Node HTTP server showing how to build a temporary agent for each request.
+Agents may choose only the preinstalled `knowledge-search` tool and configured OpenAI provider. Neither the
+agent config nor the agent is stored by the framework.
 
 ## Setup
 
@@ -25,47 +25,37 @@ npm start
 
 The server binds to `127.0.0.1:3000` by default. `OPENAI_MODEL`, `HOST` and `PORT` are optional.
 
-## Routes
+## Route
 
-Every route requires `Authorization: Bearer $AGENT_API_TOKEN`.
+Every request requires an `Authorization` header containing `Bearer` followed by `AGENT_API_TOKEN`.
 
-| Method   | Path                | Purpose                                                                 |
-| -------- | ------------------- | ----------------------------------------------------------------------- |
-| `GET`    | `/agents`           | List in-memory agent names                                              |
-| `PUT`    | `/agents/:name`     | Validate and register an agent configuration                            |
-| `POST`   | `/agents/:name/run` | Run with `{ "input": "...", "context": {...} }` (`context` is optional) |
-| `DELETE` | `/agents/:name`     | Remove an agent                                                         |
+| Method | Path          | Purpose                                                                                         |
+| ------ | ------------- | ----------------------------------------------------------------------------------------------- |
+| `POST` | `/agents/run` | Build and run with `{ "config": {...}, "input": "...", "context": {...} }`; context is optional |
 
-Create an agent:
+Build and run a temporary agent in one request:
 
 ```bash
-curl -X PUT http://127.0.0.1:3000/agents/support \
+curl -X POST http://127.0.0.1:3000/agents/run \
   -H "Authorization: Bearer $AGENT_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"openai","systemPrompt":"Help {{ user.name }} at {{ organization }} using tools: {{ tools | json }}","context":{"organization":"Acme"},"tools":["knowledge-search"],"maxTurns":5}'
+  -d '{"config":{"provider":"openai","systemPrompt":"Help {{ user.name }} at {{ organization }} using tools: {{ tools | json }}","context":{"organization":"Acme"},"tools":["knowledge-search"],"maxTurns":5},"input":"When is support available?","context":{"user":{"name":"Ada"}}}'
 ```
 
-Run it:
+`createAgent` validates the config and returns an agent directly. Build errors produce a 400 response, and no
+config or agent is stored even on success. Provider keys are server-side only; request data cannot supply a
+key or load code. The tool directory is fixed in source and compiled before startup.
 
-```bash
-curl -X POST http://127.0.0.1:3000/agents/support/run \
-  -H "Authorization: Bearer $AGENT_API_TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"input":"When is support available?","context":{"user":{"name":"Ada"}}}'
-```
-
-`registerAgent` validates the request and returns an error response without storing an invalid config. Provider keys
-are server-side only; request data cannot supply a key or load code. The tool directory is fixed in source and
-compiled before startup.
-The run request validates `input` and optional `context`. Per-run context shallowly overrides agent defaults;
+The request validates `input` and optional `context`. Per-run context shallowly overrides agent defaults;
 missing Liquid variables fail before a provider call. Only inject context the caller may expose to the model.
+Provider errors return 429 for rate limits or 502 for other run failures.
 
 ## Security and production notes
 
 This is an instructional server, not a production-ready API gateway. Before exposing it beyond localhost, add
-TLS, proper identity and authorization, request rate and concurrency limits, audit logging, persistence, and
-per-user tool allowlists. The bearer token is a single shared secret; use a secret manager and rotate it. Agent
-configs can invoke any tool in their allowlist, so do not register destructive or privileged tools for untrusted
-users. Cap `maxTurns` and `maxTokens` in a production wrapper to manage cost.
+TLS, proper identity and authorization, request rate and concurrency limits, audit logging, and per-user tool
+and provider allowlists. The bearer token is a single shared secret; use a secret manager and rotate it.
+Do not register destructive or privileged tools for untrusted users. Cap `maxTurns`, `maxTokens`, and
+`maxOutputRetries` in a production wrapper to manage cost.
 
 Run `npm run typecheck` or `npm start` to compile the whole TypeScript project.

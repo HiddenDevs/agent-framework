@@ -4,16 +4,10 @@ import type { Agent } from "./agent/agent.js";
 import type { ModelClient } from "./model/model-client.js";
 import { ModelClientFactory } from "./providers/model-client-factory.js";
 import { ProviderConfig, ProviderConfigSchema, type ProviderConfigInput } from "./providers/provider-config.js";
-import { Result } from "./result.js";
 import type { ToolModuleExtension } from "./tools/tool-collector.js";
 import type { ToolFactory } from "./tools/tool-registry.js";
 import { ToolRegistry } from "./tools/tool-registry.js";
 import { formatIssues } from "./tools/tool-runner.js";
-
-// Registration only builds the agent to validate it; the client is never called.
-const VALIDATION_CLIENT: ModelClient = {
-    complete: () => Promise.reject(new Error("Validation client cannot complete requests.")),
-};
 
 export const FrameworkConfigSchema = z.object({
     toolPaths: z.array(z.string()).default([]),
@@ -31,7 +25,7 @@ export type AgentFrameworkOptions = {
     readonly clientFactory?: (config: ProviderConfig) => Promise<ModelClient>;
 };
 
-/** Entry point: discovers tools, then builds agents from configuration. Agents can also be registered at runtime. */
+/** Entry point: discovers tools, then builds named or temporary agents from configuration. */
 export class AgentFramework {
     private readonly providers: Map<string, ProviderConfigInput>;
     private readonly agents: Map<string, AgentConfig>;
@@ -63,7 +57,7 @@ export class AgentFramework {
 
     /**
      * Imports tool modules, which executes them: only pass trusted paths, never request data.
-     * Newly discovered tools become selectable by agents registered afterwards.
+     * Newly discovered tools become selectable by agents built afterwards.
      */
     public async loadTools(
         paths: string | readonly string[],
@@ -75,44 +69,16 @@ export class AgentFramework {
     }
 
     /**
-     * Registers (or with `replace`, overwrites) an agent without a redeploy. The config is fully
-     * validated first: schema, provider, tool names and lint, and the output schema. Safe for untrusted
-     * config because agents can only reference already-registered tools and providers.
+     * Builds a temporary agent without storing its config or instance in the framework.
+     * Throws on invalid config, unknown providers or tools, or client creation failure.
+     * Config can only reference already-registered tools and providers.
      */
-    public registerAgent(
-        name: string,
-        input: unknown,
-        options: { readonly replace?: boolean } = {},
-    ): Result<AgentConfig> {
-        if (name.trim().length === 0) {
-            return Result.err(new Error("Agent name must not be empty."));
-        }
-        if (this.agents.has(name) && !options.replace) {
-            return Result.err(new Error(`Agent "${name}" is already registered.`));
-        }
-
+    public async createAgent(input: unknown): Promise<Agent<unknown>> {
         const parsed = AgentConfigSchema.safeParse(input);
         if (!parsed.success) {
-            return Result.err(new Error(`Invalid agent config: ${formatIssues(parsed.error.issues)}`));
+            throw new Error(`Invalid agent config: ${formatIssues(parsed.error.issues)}`);
         }
-        const config = parsed.data;
-        if (!this.providers.has(config.provider)) {
-            return Result.err(new Error(`Unknown provider "${config.provider}".`));
-        }
-
-        try {
-            AgentFactory.fromConfig(config, VALIDATION_CLIENT, this.options.toolFactory);
-        } catch (error) {
-            return Result.err(error instanceof Error ? error : new Error(String(error)));
-        }
-
-        this.agents.set(name, config);
-        return Result.ok(config);
-    }
-
-    /** Returns true when an agent was removed. */
-    public unregisterAgent(name: string): boolean {
-        return this.agents.delete(name);
+        return this.buildAgent(parsed.data);
     }
 
     public hasAgent(name: string): boolean {
@@ -139,13 +105,17 @@ export class AgentFramework {
         if (!agentConfig) {
             throw new Error(`Unknown agent "${name}". Available agents: ${this.agentNames().join(", ")}`);
         }
-        const providerInput = this.providers.get(agentConfig.provider);
+        return this.buildAgent(agentConfig);
+    }
+
+    private async buildAgent(config: AgentConfig): Promise<Agent<unknown>> {
+        const providerInput = this.providers.get(config.provider);
         if (!providerInput) {
-            throw new Error(`Agent "${name}" references unknown provider "${agentConfig.provider}".`);
+            throw new Error(`Unknown provider "${config.provider}".`);
         }
         const client = await (this.options.clientFactory ?? ModelClientFactory.create)(
             ProviderConfig.parse(providerInput),
         );
-        return AgentFactory.fromConfig(agentConfig, client, this.options.toolFactory);
+        return AgentFactory.fromConfig(config, client, this.options.toolFactory);
     }
 }

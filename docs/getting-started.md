@@ -143,5 +143,5 @@ const agent = AgentBuilder.create(client)
 ## Where to go next
 
 - Add services to a tool: [Tools: dependencies](./tools.md#tools-that-need-dependencies)
-- Create agents without redeploying: [Runtime registration](./runtime-registration.md)
+- Build temporary agents from request config: [Runtime agents](./runtime-registration.md)
 - Test without a network: [Testing](./testing.md)

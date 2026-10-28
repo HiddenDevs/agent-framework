@@ -146,5 +146,5 @@ when converting schemas outside the framework.
 
 The framework does not read files or databases itself; hand it an object. Typical sources are a JSON file
 (`JSON.parse(await readFile(...))`), environment-specific modules, a database table, or an HTTP request body
-(see [Runtime registration](./runtime-registration.md)). Keep API keys out of agent configs: agents only name a
+(see [Temporary runtime agents](./runtime-registration.md)). Keep API keys out of agent configs: agents only name a
 provider, and the provider holds the key.

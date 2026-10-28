@@ -42,6 +42,7 @@ const readJson = async (request: IncomingMessage): Promise<unknown> => {
 };
 
 const runRequestSchema = z.object({
+    config: z.unknown().refine((value) => value !== undefined, "Agent config is required."),
     input: z.string(),
     context: z.record(z.string(), z.unknown()).optional(),
 });
@@ -53,47 +54,15 @@ const handle = async (request: IncomingMessage, response: ServerResponse): Promi
     }
 
     const url = new URL(request.url ?? "/", "http://localhost");
-    const segments = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
-
-    if (request.method === "GET" && url.pathname === "/agents") {
-        send(response, 200, { agents: framework.agentNames() });
-        return;
-    }
-
-    if (segments.length === 2 && segments[0] === "agents") {
-        const name = segments[1];
-        if (name === undefined) {
-            send(response, 400, { error: "Agent name is required." });
-            return;
-        }
-        if (request.method === "PUT") {
-            const registered = framework.registerAgent(name, await readJson(request));
-            if (!registered.isOk) {
-                send(response, 400, { error: registered.error.message });
-                return;
-            }
-            send(response, 201, { name, config: registered.value });
-            return;
-        }
-        if (request.method === "DELETE") {
-            send(response, framework.unregisterAgent(name) ? 204 : 404);
-            return;
-        }
-    }
-
-    if (segments.length === 3 && segments[0] === "agents" && segments[2] === "run" && request.method === "POST") {
-        const name = segments[1];
+    if (url.pathname === "/agents/run" && request.method === "POST") {
         const parsed = runRequestSchema.safeParse(await readJson(request));
-        if (name === undefined) {
-            send(response, 400, { error: "Agent name is required." });
-            return;
-        }
         if (!parsed.success) {
             send(response, 400, { error: parsed.error.message });
             return;
         }
+        const agent = await framework.createAgent(parsed.data.config);
         try {
-            const result = await (await framework.agent(name)).run(parsed.data.input, parsed.data.context);
+            const result = await agent.run(parsed.data.input, parsed.data.context);
             if (!result.isOk) {
                 send(response, 502, { error: result.error.message, transcript: result.error.transcript });
                 return;

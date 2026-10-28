@@ -221,7 +221,7 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
         });
     });
 
-    describe("runtime registration", () => {
+    describe("temporary runtime agents", () => {
         const make = async () => {
             const echo = z.object({ msg: z.string().describe("message") });
             @AgentTool({ name: "echo", description: "Echo", inputValidationSchema: echo })
@@ -240,12 +240,66 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
             );
         };
 
-        it("registers an agent after startup and runs it", async () => {
+        it("builds an agent after startup and runs it without storing it", async () => {
             const framework = await make();
-            const registered = framework.registerAgent("late", { provider: "main", tools: ["echo"] });
-            expect(registered.isOk).toBe(true);
-            expect(framework.agentNames()).toEqual(["late"]);
-            expect((await (await framework.agent("late")).run("hi")).value.output).toBe("done");
+            const agent = await framework.createAgent({ provider: "main", tools: ["echo"] });
+            expect(framework.agentNames()).toEqual([]);
+            expect((await agent.run("hi")).value.output).toBe("done");
+            expect(framework.agentNames()).toEqual([]);
+            await expect(framework.agent("late")).rejects.toThrow(/Unknown agent/);
+        });
+
+        it("uses injected tools, configured limits, and structured output", async () => {
+            const schema = z.object({ msg: z.string().describe("message") });
+            @AgentTool({ name: "echo", description: "Echo", inputValidationSchema: schema })
+            class Echo extends ToolBase<typeof schema> {
+                public constructor(private readonly prefix: string) {
+                    super();
+                }
+                public execute(input: z.infer<typeof schema>) {
+                    return this.prefix + input.msg;
+                }
+            }
+            const toolFactory = vi.fn(() => new Echo("injected: "));
+            const requests: ModelRequest[] = [];
+            const script = [
+                new ModelResponse(
+                    Message.assistant([new ToolCallBlock("1", "echo", { msg: "hi" })]),
+                    StopReason.TOOL_USE,
+                ),
+                new ModelResponse(
+                    Message.assistant([new ToolCallBlock("2", "submit_result", { reply: "injected: hi" })]),
+                    StopReason.TOOL_USE,
+                ),
+            ];
+            const complete = vi.fn(async (request: ModelRequest) => {
+                requests.push(request);
+                const next = script.shift();
+                if (!next) throw new Error("Script exhausted");
+                return next;
+            });
+            const framework = await AgentFramework.create(
+                { providers: { main: provider }, agents: {} },
+                { toolFactory, clientFactory: async () => ({ complete }) },
+            );
+            const agent = await framework.createAgent({
+                provider: "main",
+                tools: ["echo"],
+                maxTurns: 2,
+                maxTokens: 123,
+                outputSchema: {
+                    type: "object",
+                    required: ["reply"],
+                    properties: { reply: { type: "string", description: "Reply" } },
+                },
+            });
+            expect(complete).not.toHaveBeenCalled();
+            expect((await agent.run("hi")).value.output).toEqual({ reply: "injected: hi" });
+            expect(toolFactory).toHaveBeenCalledExactlyOnceWith(Echo);
+            expect(requests.map((request) => request.maxTokens)).toEqual([123, 123]);
+            expect(requests[0]?.tools.map((tool) => tool.name)).toEqual(["echo", "submit_result"]);
+            expect(JSON.stringify(requests[1]?.messages)).toContain("injected: hi");
+            expect(framework.agentNames()).toEqual([]);
         });
 
         it("preserves context in runtime config and renders per-request overrides", async () => {
@@ -261,22 +315,22 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
                     }),
                 },
             );
-            const registered = framework.registerAgent("contextual", {
+            const agent = await framework.createAgent({
                 provider: "main",
                 systemPrompt: "{{ organization }} {{ name }}",
                 context: { organization: "Acme", name: "guest" },
             });
-            expect(registered.isOk).toBe(true);
-            expect(framework.getAgentConfig("contextual")?.context).toEqual({ organization: "Acme", name: "guest" });
-            const agent = await framework.agent("contextual");
             await agent.run("q", { name: "Ada" });
             await agent.run("q");
             expect(requests.map((request) => request.systemPrompt)).toEqual(["Acme Ada", "Acme guest"]);
+            expect(framework.agentNames()).toEqual([]);
         });
 
-        it("returns validation problems as data and registers nothing", async () => {
+        it("rejects invalid configs and stores nothing", async () => {
             const framework = await make();
             const cases: [unknown, RegExp][] = [
+                [null, /Invalid agent config/],
+                [{}, /Invalid agent config/],
                 [{ provider: "nope" }, /Unknown provider/],
                 [{ provider: "main", tools: ["ghost"] }, /not registered/],
                 [{ provider: "main", maxTurns: 0 }, /Invalid agent config/],
@@ -288,28 +342,56 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
                 [{ provider: "main", outputSchema: { type: "object", if: {}, then: {} } }, /Conditional schemas/],
             ];
             for (const [config, message] of cases) {
-                const result = framework.registerAgent("bad", config);
-                expect(result.isOk).toBe(false);
-                expect(result.error.message).toMatch(message);
+                await expect(framework.createAgent(config)).rejects.toThrow(message);
             }
-            expect(framework.hasAgent("bad")).toBe(false);
+            expect(framework.agentNames()).toEqual([]);
         });
 
-        it("rejects duplicates unless replacing, and supports unregistering", async () => {
-            const framework = await make();
-            framework.registerAgent("a", { provider: "main" });
-            expect(framework.registerAgent("a", { provider: "main" }).isOk).toBe(false);
-            expect(framework.registerAgent("a", { provider: "main", maxTurns: 3 }, { replace: true }).isOk).toBe(true);
-            expect(framework.getAgentConfig("a")?.maxTurns).toBe(3);
-            expect(framework.unregisterAgent("a")).toBe(true);
-            expect(framework.unregisterAgent("a")).toBe(false);
+        it("creates independent agents and clients without changing configured agents", async () => {
+            const requests: ModelRequest[] = [];
+            const clientFactory = vi.fn(async () => ({
+                complete: async (request: ModelRequest) => {
+                    requests.push(request);
+                    return new ModelResponse(Message.assistant([new TextBlock("done")]));
+                },
+            }));
+            const framework = await AgentFramework.create(
+                { providers: { main: provider }, agents: { saved: { provider: "main", systemPrompt: "saved" } } },
+                { clientFactory },
+            );
+            const config = { provider: "main", systemPrompt: "temporary" };
+            const [first, second] = await Promise.all([framework.createAgent(config), framework.createAgent(config)]);
+            expect(first).not.toBe(second);
+            expect(clientFactory).toHaveBeenCalledTimes(2);
+            await first.run("first");
+            await second.run("second");
+            await (await framework.agent("saved")).run("third");
+            expect(requests.map((request) => request.systemPrompt)).toEqual(["temporary", "temporary", "saved"]);
+            expect(requests.map((request) => request.messages.length)).toEqual([1, 1, 1]);
+            expect(framework.agentNames()).toEqual(["saved"]);
+            expect(framework.hasAgent("saved")).toBe(true);
+            expect(framework.getAgentConfig("saved")?.systemPrompt).toBe("saved");
+        });
+
+        it("propagates client creation failures without storing an agent", async () => {
+            const failure = new Error("Client unavailable");
+            const framework = await AgentFramework.create(
+                { providers: { main: provider }, agents: {} },
+                {
+                    clientFactory: async () => {
+                        throw failure;
+                    },
+                },
+            );
+            await expect(framework.createAgent({ provider: "main" })).rejects.toBe(failure);
+            expect(framework.agentNames()).toEqual([]);
         });
 
         it("registers providers at runtime", async () => {
             const framework = await make();
-            expect(framework.registerAgent("a", { provider: "second" }).isOk).toBe(false);
+            await expect(framework.createAgent({ provider: "second" })).rejects.toThrow(/Unknown provider/);
             framework.registerProvider("second", provider);
-            expect(framework.registerAgent("a", { provider: "second" }).isOk).toBe(true);
+            expect((await (await framework.createAgent({ provider: "second" })).run("hi")).value.output).toBe("done");
             expect(() => framework.registerProvider("x", { provider: "nope" } as never)).toThrow();
         });
     });

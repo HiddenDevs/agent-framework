@@ -20,8 +20,8 @@ The framework separates two kinds of failure:
 | Model hits `maxTokens`                         | You         | `AgentError`: `Model hit the max token limit (N)`                 |
 | Provider or network failure                    | You         | Thrown `ModelClientError`                                         |
 | Invalid config, unknown tool, failed lint      | You         | Thrown `Error` / `ZodError` at build time                         |
-| Runtime registration problem                   | You         | `Result` error from `registerAgent`                               |
-| Invalid Liquid syntax or unknown filter        | You         | Thrown error at build time; `Result` error during registration    |
+| Temporary agent construction problem           | You         | Rejected promise from `createAgent`                              |
+| Invalid Liquid syntax or unknown filter        | You         | Thrown error at build time                                       |
 | Missing template context or rendering failure  | You         | Thrown error from `run` / `runConversation` before any model call |
 
 ## `Result`
@@ -64,12 +64,13 @@ These throw immediately so mistakes surface at startup:
 
 - `AgentFramework.create`: invalid config shape, an agent naming an undefined provider, tool discovery failure.
 - `framework.agent(name)`: unknown agent name, unknown or lint-failing tool, invalid output schema, invalid limits.
+- `framework.createAgent(config)`: invalid config, unknown provider, client creation failure, or the same build errors.
 - `AgentBuilder.build()`: same checks for code-built agents.
 - `ToolRegistry.registerToolClass` (via the decorator): duplicate tool name.
 - `ToolCollector.collect`: missing path, import failure (with `cause`), duplicate names.
 
-Liquid prompt syntax and filters are validated when an agent is built, including during runtime registration.
-Missing context variables are checked at run time, so registration can accept prompts that need per-request
+Liquid prompt syntax and filters are validated when an agent is built, including temporary runtime agents.
+Missing context variables are checked at run time, so construction can accept prompts that need per-request
 values. Rendering failures reject the run rather than becoming an `AgentError` result; use a conditional or
 `default` filter for optional values. See [Prompt context](./agents.md#prompt-context).
 

@@ -1,151 +1,129 @@
-# Runtime registration
+# Temporary runtime agents
 
-Agents (and providers) can be added to a running `AgentFramework` without a redeploy. The typical use is a generic
-endpoint that lets developers or administrators define new agents as data.
+Build an agent from a config for the current request without registering a name or storing it in
+`AgentFramework`. Tools and providers are still configured by the host application.
 
 ## API
 
 ```ts
-framework.registerAgent(name, config, { replace?: boolean }): Result<AgentConfig>
-framework.unregisterAgent(name): boolean
-framework.hasAgent(name): boolean
-framework.agentNames(): string[]
-framework.getAgentConfig(name): AgentConfig | undefined
+await framework.createAgent(config): Agent<unknown>     // build a temporary agent
+await framework.agent(name): Agent<unknown>             // build a startup-configured agent
+framework.hasAgent(name): boolean                       // startup-configured names only
+framework.agentNames(): string[]                        // startup-configured names only
+framework.getAgentConfig(name): AgentConfig | undefined // startup-configured configs only
 framework.registerProvider(name, providerConfig): void   // throws on invalid config
 framework.loadTools(paths, extensions?): Promise<void>   // trusted paths only
-await framework.agent(name): Agent                       // build and use
 ```
 
-### `registerAgent`
+### `createAgent`
 
-`config` is `unknown` on purpose: pass a request body straight in. Before anything is stored it checks:
+`config` is `unknown` on purpose: callers can pass a request body. The method:
 
-1. The name is not blank.
-2. The name is not already taken (unless `replace: true`).
-3. The config passes the [agent config schema](./configuration.md#agent-config).
-4. The named provider exists in this framework.
-5. The agent can actually be built: every tool name is registered and passes lint, limits are in range, and the
-   `outputSchema` compiles and the Liquid prompt parses (including filter validation).
+1. Validates the [agent config schema](./configuration.md#agent-config), applying defaults.
+2. Resolves an existing provider and creates a model client using the framework's `clientFactory`, if supplied.
+3. Builds the agent, validating tool selections and lint, the output schema, and Liquid prompt syntax and filters.
 
-Output schemas are converted using Zod's `fromJSONSchema`; conversion is not full JSON Schema meta-schema
-validation and does not reject every unknown keyword or invalid default. See
-[Output schemas](./configuration.md#output-schemas).
+It returns `Promise<Agent<unknown>>` directly, not a `Result`. Invalid configs, unknown providers or tools,
+invalid prompts or output schemas, and client creation failures reject the promise. Building does not call
+the model; `agent.run` or `agent.runConversation` does that.
 
-It returns a `Result`. On failure `result.error.message` describes the first problem and **nothing is stored**.
-On success `result.value` is the parsed config, with defaults applied. Registration never contacts a model
-provider or creates an SDK client.
+The framework retains neither the temporary config nor the agent or model client. Each call builds a fresh
+agent and client, leaving named agents unchanged. Keep the returned agent local to the request; there is
+nothing to unregister after the run. Tool classes and cached tool instances remain in the shared
+`ToolRegistry`; temporary agents do not change that lifecycle.
 
-Registration is in effect immediately for later `framework.agent(name)` calls. Agents already built keep
-the configuration they were built with.
+Output schemas use Zod's `fromJSONSchema`; conversion is not full JSON Schema meta-schema validation.
+See [Output schemas](./configuration.md#output-schemas).
 
-## Example: a generic endpoint
+## Example: a single-request endpoint
 
 Using any HTTP framework (shown here with Express-style handlers):
 
 ```ts
-app.put("/agents/:name", async (req, res) => {
-    const result = framework.registerAgent(req.params.name, req.body, { replace: true });
-    if (!result.isOk) return res.status(400).json({ error: result.error.message });
-    res.status(204).end();
+const runRequestSchema = z.object({
+    config: AgentConfigSchema,
+    input: z.string(),
+    context: z.record(z.string(), z.unknown()).optional(),
 });
 
-app.delete("/agents/:name", (req, res) => {
-    res.status(framework.unregisterAgent(req.params.name) ? 204 : 404).end();
-});
+app.post("/agents/run", async (req, res, next) => {
+    const parsed = runRequestSchema.safeParse(req.body);
+    if (!parsed.success) return res.status(400).json({ error: parsed.error.message });
 
-app.get("/agents", (_req, res) => res.json(framework.agentNames()));
-
-app.post("/agents/:name/run", async (req, res) => {
-    if (!framework.hasAgent(req.params.name)) return res.status(404).end();
-
-    const agent = await framework.agent(req.params.name);
-    const result = await agent.run(String(req.body.input ?? ""), req.body.context);
-
-    if (!result.isOk) return res.status(502).json({ error: result.error.message });
-    res.json({ output: result.value.output, turns: result.value.turns });
+    try {
+        const agent = await framework.createAgent(parsed.data.config);
+        const result = await agent.run(parsed.data.input, parsed.data.context);
+        if (!result.isOk) return res.status(502).json({ error: result.error.message });
+        res.json({ output: result.value.output, turns: result.value.turns });
+    } catch (error) {
+        next(error); // map build errors to 400 and provider failures to 429/502 in your error handler
+    }
 });
 ```
 
-A request body such as this defines a complete agent:
+Send config and input together:
 
 ```json
 {
-    "provider": "main",
-    "systemPrompt": "You triage {{ organization }} support tickets. Tools: {{ tools | json }}",
-    "context": { "organization": "Acme" },
-    "tools": ["customer-lookup"],
-    "maxTurns": 6,
-    "outputSchema": {
-        "type": "object",
-        "required": ["priority"],
-        "properties": { "priority": { "type": "string", "enum": ["low", "high"], "description": "Urgency" } }
-    }
+    "config": {
+        "provider": "main",
+        "systemPrompt": "You triage {{ organization }} support tickets. Tools: {{ tools | json }}",
+        "context": { "organization": "Acme" },
+        "tools": ["customer-lookup"],
+        "maxTurns": 6,
+        "outputSchema": {
+            "type": "object",
+            "required": ["priority"],
+            "properties": { "priority": { "type": "string", "enum": ["low", "high"], "description": "Urgency" } }
+        }
+    },
+    "input": "I cannot sign in."
 }
 ```
 
-The run endpoint should validate `input` as a string and optional `context` as an object before calling the
-agent. Per-run context shallowly overrides the registered defaults and is not stored. Provide only context the
+Optional per-run `context` shallowly overrides the config defaults for that call. Provide only context the
 caller is authorized to expose to the model. Missing template values reject the run before contacting the provider.
 
-## Providers at runtime
+## Providers and tools at runtime
 
 ```ts
 framework.registerProvider("backup", { provider: "openai", model: "<model>", apiKey });
-framework.registerAgent("triage", { provider: "backup" });
+const agent = await framework.createAgent({ provider: "backup" });
 ```
 
 `registerProvider` validates the config and overwrites an existing provider of the same name. Provider configs
-contain secrets, so keep this method behind trusted code and do not expose it unauthenticated.
+contain secrets, so keep this method behind trusted code.
 
-## Adding tools at runtime
-
-Agents can only use tools that are already registered. New tools arrive as code, so they come from
-`loadTools`:
+New tools arrive as code, not request data:
 
 ```ts
-await framework.loadTools("./dist/plugins"); // after deploying new tool modules to disk
-framework.registerAgent("new-agent", { provider: "main", tools: ["new-tool"] });
+await framework.loadTools("./dist/plugins");
+const agent = await framework.createAgent({ provider: "main", tools: ["new-tool"] });
 ```
 
-Be aware that `loadTools` **executes** the modules it imports. Use fixed, trusted paths. Do not accept paths from
-request data. Because of Node's module cache, a module imported once is not re-executed, so changing an already
-loaded tool still requires a restart.
+`loadTools` **executes** imported modules. Use fixed, trusted paths, never request data. Node's module cache
+means already imported modules are not re-executed; changing a loaded tool still requires a restart.
 
-## Security model
+## Authorization and limits
 
-Config submitted by a caller can only:
+Caller-supplied configs select installed tools and providers, prompts, context, limits, and output shapes.
+They cannot load new code, but they can invoke any selected tool. Before accepting a config:
 
-- choose among tools and providers you have already installed,
-- set prompts, default template context, limits and an output shape.
+- Authorize tool and provider selections, for example with per-user allowlists.
+- Cap `maxTurns`, `maxTokens`, and `maxOutputRetries` to control cost.
+- Treat prompts as caller-controlled content sent through your provider account.
+- Never inject secrets or unauthorized context into the agent.
+- Enforce request size, concurrency, and rate limits even though Liquid rendering has resource limits.
 
-It cannot run new code or read secrets. That makes `registerAgent` reasonable to expose to semi-trusted users,
-but you still need to consider:
+## Migration from runtime registration
 
-- **Authorization.** Decide who may register or replace agents. A caller can give an agent any registered tool.
-  If a tool is dangerous (for example it deletes data), restrict who can attach it, for example by wrapping
-  `registerAgent` and rejecting configs whose `tools` are not on a per-user allowlist.
-- **Cost.** `maxTurns`, `maxTokens` and `maxOutputRetries` come from the config. Enforce upper bounds in your
-  endpoint before registering.
-- **Prompt content.** A system prompt is user-controlled text sent to your provider account.
-- **Template context.** Prompts use LiquidJS with no filesystem-backed templates. A prompt can expose any context
-  supplied to that agent, so never inject secrets or unauthorized data. Rendering has resource limits, but enforce
-  request size and concurrency limits at your endpoint too.
-- **Name collisions.** Use `replace: false` (the default) unless overwriting is intended.
+`registerAgent` and `unregisterAgent` have been removed. Replace registration followed by a named lookup with:
 
-## Persistence and multiple instances
+```ts
+const agent = await framework.createAgent(config);
+const result = await agent.run(input, context);
+```
 
-Registrations live in the memory of one `AgentFramework` object. They are lost on restart and are not shared
-between processes. To persist them:
-
-1. On every successful `registerAgent`/`unregisterAgent`, write the config to your database.
-2. On startup, read them back and pass them as `agents` to `AgentFramework.create`, or call
-   `registerAgent(name, config)` for each.
-
-For several instances, publish changes (queue, pub/sub, polling) and have each instance apply them with the same
-calls. Last write wins; there is no versioning built in.
-
-## Concurrency
-
-Registration methods are synchronous and complete atomically within a single event-loop tick, so concurrent
-requests cannot observe a half-registered agent. `framework.agent()` reads the stored config once when it is
-called.
+There is no runtime agent map, replacement flag, name collision, or persistence/synchronization requirement.
+Temporary agents do not appear in `agentNames`, `hasAgent`, or `getAgentConfig`. Those methods describe only
+agents supplied to `AgentFramework.create({ providers, agents })` at startup.

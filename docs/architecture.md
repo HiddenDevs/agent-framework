@@ -26,7 +26,7 @@ flowchart TD
 | Agent runtime  | `src/agent/`                                    | The loop, the builder, config-to-agent factory                                    |
 | Providers      | `src/providers/`                                | SDK adapters and dialects                                                         |
 | Config schemas | `src/agent/agent-factory.ts`                    | Uses Zod's `fromJSONSchema` to compile configured output schemas                  |
-| Entry point    | `src/agent-framework.ts`                        | Config loading, runtime registration, agent construction                          |
+| Entry point    | `src/agent-framework.ts`                        | Config loading, named and temporary agent construction                            |
 
 ## Design rules
 
@@ -75,14 +75,15 @@ Details of each branch are in [Agents: the loop](./agents.md#the-loop).
 - **Global, process-wide state:** `ToolRegistry` (classes and cached instances). This is deliberate: decorators
   run at import time and have nowhere else to register. Tests isolate with `clearToolClasses()` and
   `clearToolInstances()`.
-- **Per `AgentFramework` instance:** the provider and agent config maps. Registering an agent only affects that
-  framework object.
-- **Per call:** `framework.agent(name)` builds a new, stateless `Agent` (and a new model client) every time.
+- **Per `AgentFramework` instance:** the provider map and startup agent config map. Temporary agent configs,
+  clients, and instances are not retained by the framework.
+- **Per call:** `framework.agent(name)` and `framework.createAgent(config)` build a new, stateless `Agent`
+  (and a new model client) every time.
   An `Agent` holds a parsed Liquid prompt and default context, but no conversation state; conversations live in
   the transcript you pass in and get back. Per-run context overrides defaults in a fresh Liquid scope and the
   rendered prompt is reused for every turn.
 
 ## Non-goals
 
-Streaming, multi-agent orchestration and a persistence layer for runtime-registered agents are not implemented.
+Streaming, multi-agent orchestration and agent persistence are not implemented.
 JSON Schema conversion follows Zod's supported features; model providers may impose additional restrictions.

@@ -21,7 +21,7 @@ correct itself, and the agent loop is independent of any one model provider.
 | [Tools](./tools.md)                               | Creating, discovering, injecting dependencies into, linting and running tools  |
 | [Agents](./agents.md)                             | The agent loop, builder, structured output, transcripts and limits             |
 | [Configuration](./configuration.md)               | Framework, provider and agent config, including JSON Schema output validation  |
-| [Runtime registration](./runtime-registration.md) | Adding and removing agents on a running process (for example from an endpoint) |
+| [Runtime agents](./runtime-registration.md)        | Building temporary agents from config without storing them                    |
 | [Providers](./providers.md)                       | Anthropic and OpenAI adapters, dialects, and writing your own `ModelClient`    |
 | [Error handling](./error-handling.md)             | What is returned as data, what throws, and how to handle each                  |
 | [Testing](./testing.md)                           | Testing tools and agents without a network                                     |

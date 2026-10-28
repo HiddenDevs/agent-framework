@@ -74,7 +74,7 @@ expect((await agent.run("q")).value.output).toEqual({ answer: "42" });
 To test self-correction, script an invalid submit followed by a valid one and assert on
 `client.requests[1]` that the last message holds the `Invalid result: ...` error.
 
-## Testing config-driven agents and runtime registration
+## Testing config-driven and temporary runtime agents
 
 Use the `clientFactory` option to avoid real SDK clients:
 
@@ -84,11 +84,14 @@ const framework = await AgentFramework.create(
     { clientFactory: async () => fakeClient },
 );
 
-const registered = framework.registerAgent("a", { provider: "main", tools: ["search"] });
-expect(registered.isOk).toBe(true);
+const agent = await framework.createAgent({ provider: "main", tools: ["search"] });
+expect((await agent.run("q")).isOk).toBe(true);
+expect(framework.agentNames()).toEqual([]);
+await expect(framework.createAgent({ provider: "missing" })).rejects.toThrow(/Unknown provider/);
 ```
 
-Registration never calls a model, so invalid configs can be tested without any client at all.
+Building creates a client but never calls the model. Use a fake `clientFactory` to test tool, prompt, and
+output-schema validation without SDK dependencies or network requests.
 
 ## Testing discovery
 
