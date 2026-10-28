@@ -18,7 +18,8 @@ Agents are cheap, stateless and safe to build per request.
 import { AgentBuilder } from "@hiddendevs/agent-framework";
 
 const agent = AgentBuilder.create(client, toolFactory?) // toolFactory is optional
-    .systemPrompt("You are a support agent. Tools: ${tools}")
+    .systemPrompt("You support {{ organization }}. Tools: {{ tools | json }}")
+    .context({ organization: "Acme" })
     .tools("order-lookup", "refund")
     .maxTurns(8)
     .maxTokens(2048)
@@ -32,7 +33,8 @@ Each method returns a **new** builder, so a partly configured builder can be reu
 
 | Method                               | Default          | Notes                                                                                  |
 | ------------------------------------ | ---------------- | -------------------------------------------------------------------------------------- |
-| `systemPrompt(text)`                 | none             | `${tools}` is replaced with the JSON array of tool names                               |
+| `systemPrompt(text)`                 | none             | A LiquidJS template, parsed at build time and rendered once per run                    |
+| `context(values)`                    | `{}`             | Shallow-merges default template variables; does not mutate the builder                 |
 | `tools(...names)` / `tools(toolSet)` | no tools         | Names must be registered; they are linted at `build()`                                 |
 | `maxTurns(n)`                        | `10`             | Maximum model calls per run. Must be at least 1                                        |
 | `maxTokens(n)`                       | `4096`           | Per model call. Must be at least 1                                                     |
@@ -41,8 +43,59 @@ Each method returns a **new** builder, so a partly configured builder can be reu
 | `output(schema, description?)`       | none (free text) | Returns a builder typed to the schema. Description default: `Submit your final answer` |
 | `build()`                            |                  | Validates and returns the `Agent`                                                      |
 
-`build()` throws if a limit is out of range, a tool is unknown or fails lint, or the output schema is not an
-object schema.
+`build()` throws if a limit is out of range, a tool is unknown or fails lint, the output schema is not an
+object schema, or the prompt has invalid Liquid syntax or an unknown filter.
+
+### Prompt context
+
+System prompts use [LiquidJS](https://liquidjs.com/). Inject defaults with `.context(values)` or the agent config's
+`context` field. Pass a second context argument to `run` or `runConversation` for request-specific values:
+
+```ts
+const agent = AgentBuilder.create(client)
+    .systemPrompt(
+        `You help {{ user.name }} at {{ organization }}.
+{% if preferences %}Preferences: {{ preferences | json }}{% endif %}
+{% for rule in rules %}- {{ rule }}
+{% endfor %}Available tools: {{ tools | json }}`,
+    )
+    .context({ organization: "Acme", rules: ["Be concise", "Use tools for facts"] })
+    .tools("order-lookup")
+    .build();
+
+const first = await agent.run("Find my order", {
+    user: { name: "Ada" },
+    preferences: { language: "en" },
+});
+if (first.isOk) {
+    await agent.runConversation([...first.value.transcript, Message.user("More details")], {
+        user: { name: "Ada" },
+    });
+}
+```
+
+`AgentContext` is exported as `Readonly<Record<string, unknown>>`. Use plain data objects, arrays and primitives;
+only include values the model is allowed to see. Do not pass service instances, functions or secrets.
+
+- Context is merged **shallowly**: builder/config defaults, then per-run overrides, then the reserved `tools`
+  variable (an array of selected tool names, excluding the synthetic `submit_result` tool). A nested override
+  replaces the entire nested value, rather than deep-merging it.
+- Repeated `.context(...)` calls merge defaults into a new builder. Top-level inputs are copied; nested values
+  are shared, so do not mutate them while an agent uses them.
+- Context does not persist between runs or in the transcript. Supply per-run values again when resuming.
+  Concurrent runs have independent Liquid scopes; assignments do not leak into defaults or other runs.
+- Missing variables and unknown filters are errors, not silently empty output. Use
+  `{{ optionalName | default: "guest" }}` or `{% if optionalValue %}...{% endif %}` for optional values.
+- Templates are parsed at construction and rendered once before the first model call, then reused for all turns
+  in that run. Invalid syntax/filters throw at build time; missing data and other rendering errors reject
+  `run`/`runConversation` before any model request (they are not an `AgentError` result).
+- Injected strings are not rendered again, and output is not HTML-escaped. Use `| json` to serialize arrays and
+  objects; normal Liquid filters, loops and conditionals are supported.
+- Templates are in-memory only: file includes, renders and layouts cannot load local files. Parsing is limited
+  to 1,000,000 characters, rendering to 1,000 ms, and LiquidJS memory accounting to 1,000,000 units per run.
+  Exceeding a limit throws; these limits are safeguards, not an isolation boundary for hostile input.
+
+**Breaking change:** `${tools}` is no longer substituted. Migrate prompts to `{{ tools | json }}`.
 
 ### Typed output
 
@@ -64,6 +117,7 @@ Without `output`, the agent is an `Agent<string>` and `output` is the model's fi
 ```ts
 const result = await agent.run("question"); // Result<AgentResult<O>, AgentError>
 const next = await agent.runConversation(messages); // continue from a transcript
+const contextual = await agent.run("question", { user: { name: "Ada" } });
 ```
 
 `AgentResult<O>`:
@@ -135,7 +189,7 @@ Its purpose is to stop models inventing values to satisfy required-looking field
 
 The final system prompt is the parts below joined by a blank line, in this order, omitting any that do not apply:
 
-1. Your `systemPrompt` (with `${tools}` substituted)
+1. Your `systemPrompt` rendered with Liquid and the merged context
 2. The grounding instruction
 3. The `submit_result` instruction
 

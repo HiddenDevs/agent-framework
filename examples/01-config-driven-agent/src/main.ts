@@ -21,7 +21,7 @@ const framework = await AgentFramework.create({
         weatherAssistant: {
             provider: "anthropic",
             systemPrompt:
-                "Answer weather questions using the current-weather tool. Only report values returned by the tool. Available tools: ${tools}",
+                "Answer weather questions using the current-weather tool. Only report values returned by the tool. Available tools: {{ tools | json }}",
             tools: ["current-weather"],
             outputDescription: "Submit the weather report",
             outputSchema: {

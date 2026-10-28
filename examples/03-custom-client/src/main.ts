@@ -57,11 +57,14 @@ const toolFactory: ToolFactory = (toolClass: ToolClass): Tool => {
 
 const client = new LocalDemoClient();
 const agent = AgentBuilder.create(client, toolFactory)
-    .systemPrompt("Answer account questions using only account-lookup. Available: ${tools}")
+    .systemPrompt(
+        "Help {{ user.name }} with account questions using only account-lookup. Available: {{ tools | json }}",
+    )
+    .context({ user: { name: "Guest" } })
     .tools("account-lookup")
     .build();
 
-const result = await agent.run("What plan and status is account acct-42 on?");
+const result = await agent.run("What plan and status is account acct-42 on?", { user: { name: "Ada" } });
 if (!result.isOk) {
     console.error(result.error.message);
     console.error(JSON.stringify(result.error.transcript, null, 2));

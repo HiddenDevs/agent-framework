@@ -63,7 +63,7 @@ const framework = await AgentFramework.create({
     agents: {
         researcher: {
             provider: "main",
-            systemPrompt: "You research questions using the tools available: ${tools}",
+            systemPrompt: "You research questions using the tools available: {{ tools | json }}",
             tools: ["search"],
         },
     },

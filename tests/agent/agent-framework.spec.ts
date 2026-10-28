@@ -63,6 +63,8 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
                 agents: {
                     echoer: {
                         provider: "main",
+                        systemPrompt: "{{ organization }}: {{ user.name }}. Tools: {{ tools | json }}",
+                        context: { organization: "Acme", user: { name: "default" } },
                         tools: ["echo"],
                         outputSchema: {
                             type: "object",
@@ -75,8 +77,9 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
             { clientFactory: async () => client },
         );
 
-        const result = await (await framework.agent("echoer")).run("say hi");
+        const result = await (await framework.agent("echoer")).run("say hi", { user: { name: "Ada" } });
         expect(result.value.output).toEqual({ reply: "hi" });
+        expect(requests[0]?.systemPrompt).toContain('Acme: Ada. Tools: ["echo"]');
         expect(requests[0]?.tools.map((t) => t.name)).toEqual(["echo", "submit_result"]);
     });
 
@@ -121,12 +124,41 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
             expect((await (await framework.agent("late")).run("hi")).value.output).toBe("done");
         });
 
+        it("preserves context in runtime config and renders per-request overrides", async () => {
+            const requests: ModelRequest[] = [];
+            const framework = await AgentFramework.create(
+                { providers: { main: provider }, agents: {} },
+                {
+                    clientFactory: async () => ({
+                        complete: async (request) => {
+                            requests.push(request);
+                            return new ModelResponse(Message.assistant([new TextBlock("done")]));
+                        },
+                    }),
+                },
+            );
+            const registered = framework.registerAgent("contextual", {
+                provider: "main",
+                systemPrompt: "{{ organization }} {{ name }}",
+                context: { organization: "Acme", name: "guest" },
+            });
+            expect(registered.isOk).toBe(true);
+            expect(framework.getAgentConfig("contextual")?.context).toEqual({ organization: "Acme", name: "guest" });
+            const agent = await framework.agent("contextual");
+            await agent.run("q", { name: "Ada" });
+            await agent.run("q");
+            expect(requests.map((request) => request.systemPrompt)).toEqual(["Acme Ada", "Acme guest"]);
+        });
+
         it("returns validation problems as data and registers nothing", async () => {
             const framework = await make();
             const cases: [unknown, RegExp][] = [
                 [{ provider: "nope" }, /Unknown provider/],
                 [{ provider: "main", tools: ["ghost"] }, /not registered/],
                 [{ provider: "main", maxTurns: 0 }, /Invalid agent config/],
+                [{ provider: "main", context: [] }, /Invalid agent config/],
+                [{ provider: "main", systemPrompt: "{% if broken %}" }, /not closed/],
+                [{ provider: "main", systemPrompt: "{{ tools | not_a_filter }}" }, /undefined filter/],
                 [{ provider: "main", outputSchema: { type: "string", bogus: 1 } }, /unsupported keyword/],
             ];
             for (const [config, message] of cases) {

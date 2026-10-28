@@ -51,21 +51,38 @@ Options are code, not data, so they are not part of the JSON config.
 
 ## Agent config
 
-| Field                  | Type               | Default                    | Notes                                          |
-| ---------------------- | ------------------ | -------------------------- | ---------------------------------------------- |
-| `provider`             | `string`           | -                          | Required. A key in `providers`                 |
-| `systemPrompt`         | `string`           | none                       | `${tools}` becomes the JSON list of tool names |
-| `tools`                | `string[]`         | `[]`                       | Registered tool names                          |
-| `outputSchema`         | object             | none                       | Structured output, see below                   |
-| `outputDescription`    | `string`           | `Submit your final answer` | Description of `submit_result`                 |
-| `maxTurns`             | integer, 1 or more | `10`                       |                                                |
-| `maxTokens`            | integer, 1 or more | `4096`                     |                                                |
-| `maxOutputRetries`     | integer, 0 or more | `2`                        |                                                |
-| `groundingInstruction` | `boolean`          | `true`                     |                                                |
+| Field                  | Type               | Default                    | Notes                                                     |
+| ---------------------- | ------------------ | -------------------------- | --------------------------------------------------------- |
+| `provider`             | `string`           | -                          | Required. A key in `providers`                            |
+| `systemPrompt`         | `string`           | none                       | LiquidJS template; `{{ tools \| json }}` lists tool names |
+| `context`              | object             | `{}`                       | Default template variables, shallowly overridden per run  |
+| `tools`                | `string[]`         | `[]`                       | Registered tool names                                     |
+| `outputSchema`         | object             | none                       | Structured output, see below                              |
+| `outputDescription`    | `string`           | `Submit your final answer` | Description of `submit_result`                            |
+| `maxTurns`             | integer, 1 or more | `10`                       |                                                           |
+| `maxTokens`            | integer, 1 or more | `4096`                     |                                                           |
+| `maxOutputRetries`     | integer, 0 or more | `2`                        |                                                           |
+| `groundingInstruction` | `boolean`          | `true`                     |                                                           |
 
 Unknown fields are ignored (stripped), not rejected.
 
 An agent built from config behaves identically to one built with `AgentBuilder` using the same values.
+
+```ts
+const config = {
+    provider: "main",
+    systemPrompt: "Help {{ user.name }} at {{ organization }}. Tools: {{ tools | json }}",
+    context: { organization: "Acme" },
+    tools: ["search"],
+};
+```
+
+Supply request-specific values with `agent.run(input, { user: { name: "Ada" } })` or the second argument to
+`runConversation`. Context uses top-level merge semantics; `tools` cannot be overridden. Missing variables
+reject the run unless handled with a conditional or `default` filter. See
+[Prompt context](./agents.md#prompt-context) for rendering behavior and limits.
+
+**Migration:** replace `${tools}` with `{{ tools | json }}` in stored prompts as well as code.
 
 ## Output schema dialect
 

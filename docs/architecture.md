@@ -54,6 +54,7 @@ sequenceDiagram
     participant Model as ModelClient
     participant Tools as ToolSet
     App->>Agent: run("question")
+    Agent->>Agent: render Liquid prompt with defaults + per-run context
     loop each turn (up to maxTurns)
         Agent->>Model: complete(system, messages, tool specs)
         Model-->>Agent: text and/or tool calls
@@ -77,7 +78,9 @@ Details of each branch are in [Agents: the loop](./agents.md#the-loop).
 - **Per `AgentFramework` instance:** the provider and agent config maps. Registering an agent only affects that
   framework object.
 - **Per call:** `framework.agent(name)` builds a new, stateless `Agent` (and a new model client) every time.
-  An `Agent` holds no conversation state; conversations live in the transcript you pass in and get back.
+  An `Agent` holds a parsed Liquid prompt and default context, but no conversation state; conversations live in
+  the transcript you pass in and get back. Per-run context overrides defaults in a fresh Liquid scope and the
+  rendered prompt is reused for every turn.
 
 ## Non-goals
 

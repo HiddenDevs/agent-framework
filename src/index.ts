@@ -22,7 +22,7 @@ export { AgentBuilder } from "./agent/agent-builder.js";
 export { AgentConfigSchema, AgentFactory } from "./agent/agent-factory.js";
 export type { AgentConfig, AgentConfigInput } from "./agent/agent-factory.js";
 export { Agent, AgentError, AgentResult, GROUNDING_INSTRUCTION } from "./agent/agent.js";
-export type { AgentOptions } from "./agent/agent.js";
+export type { AgentContext, AgentOptions } from "./agent/agent.js";
 
 export { JsonSchemaLoader } from "./schema/json-schema-loader.js";
 

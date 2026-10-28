@@ -29,12 +29,12 @@ The server binds to `127.0.0.1:3000` by default. `OPENAI_MODEL`, `HOST` and `POR
 
 Every route requires `Authorization: Bearer $AGENT_API_TOKEN`.
 
-| Method   | Path                | Purpose                                      |
-| -------- | ------------------- | -------------------------------------------- |
-| `GET`    | `/agents`           | List in-memory agent names                   |
-| `PUT`    | `/agents/:name`     | Validate and register an agent configuration |
-| `POST`   | `/agents/:name/run` | Run an agent with `{ "input": "..." }`       |
-| `DELETE` | `/agents/:name`     | Remove an agent                              |
+| Method   | Path                | Purpose                                                                 |
+| -------- | ------------------- | ----------------------------------------------------------------------- |
+| `GET`    | `/agents`           | List in-memory agent names                                              |
+| `PUT`    | `/agents/:name`     | Validate and register an agent configuration                            |
+| `POST`   | `/agents/:name/run` | Run with `{ "input": "...", "context": {...} }` (`context` is optional) |
+| `DELETE` | `/agents/:name`     | Remove an agent                                                         |
 
 Create an agent:
 
@@ -42,7 +42,7 @@ Create an agent:
 curl -X PUT http://127.0.0.1:3000/agents/support \
   -H "Authorization: Bearer $AGENT_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"provider":"openai","systemPrompt":"Answer support questions using tools: ${tools}","tools":["knowledge-search"],"maxTurns":5}'
+  -d '{"provider":"openai","systemPrompt":"Help {{ user.name }} at {{ organization }} using tools: {{ tools | json }}","context":{"organization":"Acme"},"tools":["knowledge-search"],"maxTurns":5}'
 ```
 
 Run it:
@@ -51,12 +51,14 @@ Run it:
 curl -X POST http://127.0.0.1:3000/agents/support/run \
   -H "Authorization: Bearer $AGENT_API_TOKEN" \
   -H "Content-Type: application/json" \
-  -d '{"input":"When is support available?"}'
+  -d '{"input":"When is support available?","context":{"user":{"name":"Ada"}}}'
 ```
 
 `registerAgent` validates the request and returns an error response without storing an invalid config. Provider keys
 are server-side only; request data cannot supply a key or load code. The tool directory is fixed in source and
 compiled before startup.
+The run request validates `input` and optional `context`. Per-run context shallowly overrides agent defaults;
+missing Liquid variables fail before a provider call. Only inject context the caller may expose to the model.
 
 ## Security and production notes
 

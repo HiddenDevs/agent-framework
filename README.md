@@ -75,7 +75,8 @@ const framework = await AgentFramework.create(
         agents: {
             researcher: {
                 provider: "main",
-                systemPrompt: "Use tools to answer. Available: ${tools}",
+                systemPrompt: "Research for {{ organization }}. Available: {{ tools | json }}",
+                context: { organization: "Acme" },
                 tools: ["search"],
                 outputSchema: {
                     type: "object",
@@ -88,7 +89,7 @@ const framework = await AgentFramework.create(
     // toolFactory: (ToolClass) => new ToolClass(services), // for tools with dependencies
 );
 
-const result = await (await framework.agent("researcher")).run("What is ...?");
+const result = await (await framework.agent("researcher")).run("What is ...?", { organization: "Example Corp" });
 if (result.isOk) console.log(result.value.output);
 ```
 
@@ -96,6 +97,27 @@ Tool failures, invalid arguments and invalid structured output are returned to t
 model as error results so it can correct itself. `Result` is an error only when the
 run exhausts its budget (`AgentError`, which carries the transcript).
 `@anthropic-ai/sdk` and `openai` are optional peer dependencies; install the one you use.
+
+### Prompt templates and context
+
+System prompts use [LiquidJS](https://liquidjs.com/) for variables, filters, loops and conditionals:
+
+```ts
+import { AgentBuilder } from "@hiddendevs/agent-framework";
+
+const agent = AgentBuilder.create(client)
+    .systemPrompt("Help {{ user.name }} at {{ organization }}. Tools: {{ tools | json }}")
+    .context({ organization: "Acme" })
+    .build();
+
+const result = await agent.run("Help with my order", { user: { name: "Ada" } });
+```
+
+Builder/config context supplies defaults; the second argument to `run` or `runConversation` shallowly overrides
+them for that call only. `tools` is reserved for the selected tool names. Missing variables throw unless guarded
+with a Liquid conditional or `default` filter. See [Agents: prompt context](docs/agents.md#prompt-context).
+
+**Migration:** replace `${tools}` with `{{ tools | json }}`. The old placeholder is now literal text.
 
 ### Registering agents at runtime
 

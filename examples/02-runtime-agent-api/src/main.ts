@@ -1,6 +1,7 @@
 import { AgentFramework, ModelClientError } from "@hiddendevs/agent-framework";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
+import z from "zod";
 
 const apiKey = process.env.OPENAI_API_KEY;
 const accessToken = process.env.AGENT_API_TOKEN;
@@ -40,6 +41,11 @@ const readJson = async (request: IncomingMessage): Promise<unknown> => {
     return JSON.parse(body) as unknown;
 };
 
+const runRequestSchema = z.object({
+    input: z.string(),
+    context: z.record(z.string(), z.unknown()).optional(),
+});
+
 const handle = async (request: IncomingMessage, response: ServerResponse): Promise<void> => {
     if (request.headers.authorization !== `Bearer ${accessToken}`) {
         send(response, 401, { error: "Unauthorized" });
@@ -77,18 +83,17 @@ const handle = async (request: IncomingMessage, response: ServerResponse): Promi
 
     if (segments.length === 3 && segments[0] === "agents" && segments[2] === "run" && request.method === "POST") {
         const name = segments[1];
-        const body = await readJson(request);
-        if (name === undefined || typeof body !== "object" || body === null || !("input" in body)) {
-            send(response, 400, { error: "Expected a JSON body with a string input." });
+        const parsed = runRequestSchema.safeParse(await readJson(request));
+        if (name === undefined) {
+            send(response, 400, { error: "Agent name is required." });
             return;
         }
-        const input = (body as { readonly input?: unknown }).input;
-        if (typeof input !== "string") {
-            send(response, 400, { error: "The input property must be a string." });
+        if (!parsed.success) {
+            send(response, 400, { error: parsed.error.message });
             return;
         }
         try {
-            const result = await (await framework.agent(name)).run(input);
+            const result = await (await framework.agent(name)).run(parsed.data.input, parsed.data.context);
             if (!result.isOk) {
                 send(response, 502, { error: result.error.message, transcript: result.error.transcript });
                 return;

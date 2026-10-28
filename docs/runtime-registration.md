@@ -25,7 +25,7 @@ await framework.agent(name): Agent                       // build and use
 3. The config passes the [agent config schema](./configuration.md#agent-config).
 4. The named provider exists in this framework.
 5. The agent can actually be built: every tool name is registered and passes lint, limits are in range, and the
-   `outputSchema` compiles.
+   `outputSchema` compiles and the Liquid prompt parses (including filter validation).
 
 It returns a `Result`. On failure `result.error.message` describes the first problem and **nothing is stored**.
 On success `result.value` is the parsed config, with defaults applied. Registration never contacts a model
@@ -55,7 +55,7 @@ app.post("/agents/:name/run", async (req, res) => {
     if (!framework.hasAgent(req.params.name)) return res.status(404).end();
 
     const agent = await framework.agent(req.params.name);
-    const result = await agent.run(String(req.body.input ?? ""));
+    const result = await agent.run(String(req.body.input ?? ""), req.body.context);
 
     if (!result.isOk) return res.status(502).json({ error: result.error.message });
     res.json({ output: result.value.output, turns: result.value.turns });
@@ -67,7 +67,8 @@ A request body such as this defines a complete agent:
 ```json
 {
     "provider": "main",
-    "systemPrompt": "You triage support tickets. Tools: ${tools}",
+    "systemPrompt": "You triage {{ organization }} support tickets. Tools: {{ tools | json }}",
+    "context": { "organization": "Acme" },
     "tools": ["customer-lookup"],
     "maxTurns": 6,
     "outputSchema": {
@@ -77,6 +78,10 @@ A request body such as this defines a complete agent:
     }
 }
 ```
+
+The run endpoint should validate `input` as a string and optional `context` as an object before calling the
+agent. Per-run context shallowly overrides the registered defaults and is not stored. Provide only context the
+caller is authorized to expose to the model. Missing template values reject the run before contacting the provider.
 
 ## Providers at runtime
 
@@ -107,7 +112,7 @@ loaded tool still requires a restart.
 Config submitted by a caller can only:
 
 - choose among tools and providers you have already installed,
-- set prompts, limits and an output shape.
+- set prompts, default template context, limits and an output shape.
 
 It cannot run new code or read secrets. That makes `registerAgent` reasonable to expose to semi-trusted users,
 but you still need to consider:
@@ -118,6 +123,9 @@ but you still need to consider:
 - **Cost.** `maxTurns`, `maxTokens` and `maxOutputRetries` come from the config. Enforce upper bounds in your
   endpoint before registering.
 - **Prompt content.** A system prompt is user-controlled text sent to your provider account.
+- **Template context.** Prompts use LiquidJS with no filesystem-backed templates. A prompt can expose any context
+  supplied to that agent, so never inject secrets or unauthorized data. Rendering has resource limits, but enforce
+  request size and concurrency limits at your endpoint too.
 - **Name collisions.** Use `replace: false` (the default) unless overwriting is intended.
 
 ## Persistence and multiple instances

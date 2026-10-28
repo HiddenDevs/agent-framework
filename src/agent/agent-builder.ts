@@ -2,10 +2,11 @@ import z from "zod";
 import type { ModelClient } from "../model/model-client.js";
 import type { ToolFactory } from "../tools/tool-registry.js";
 import { ToolSet } from "../tools/tool-set.js";
-import { Agent } from "./agent.js";
+import { Agent, type AgentContext } from "./agent.js";
 
 type BuilderState<O> = {
     systemPrompt: string | null;
+    context: AgentContext;
     toolNames: readonly string[];
     toolSet: ToolSet | null;
     outputSchema: z.ZodType<O> | null;
@@ -18,6 +19,7 @@ type BuilderState<O> = {
 
 const defaults = (): BuilderState<string> => ({
     systemPrompt: null,
+    context: {},
     toolNames: [],
     toolSet: null,
     outputSchema: null,
@@ -41,6 +43,11 @@ export class AgentBuilder<O = string> {
 
     public systemPrompt(prompt: string): AgentBuilder<O> {
         return this.with({ systemPrompt: prompt });
+    }
+
+    /** Shallow-merges default variables for the Liquid system prompt. */
+    public context(values: AgentContext): AgentBuilder<O> {
+        return this.with({ context: { ...this.state.context, ...values } });
     }
 
     /** Selects registered tools by name, or uses a prebuilt set. */
@@ -97,9 +104,8 @@ export class AgentBuilder<O = string> {
         return new Agent<O>({
             client: this.client,
             tools,
-            systemPrompt: state.systemPrompt
-                ? state.systemPrompt.replaceAll("${tools}", JSON.stringify(tools.names()))
-                : null,
+            systemPrompt: state.systemPrompt,
+            context: state.context,
             outputSchema: state.outputSchema,
             outputDescription: state.outputDescription,
             maxTurns: state.maxTurns,

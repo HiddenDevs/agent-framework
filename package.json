@@ -49,6 +49,9 @@
         "format": "prettier --write .",
         "format:check": "prettier --check ."
     },
+    "dependencies": {
+        "liquidjs": "^10.30.0"
+    },
     "devDependencies": {
         "@anthropic-ai/sdk": "^1.3.0",
         "@eslint/js": "^10.0.1",

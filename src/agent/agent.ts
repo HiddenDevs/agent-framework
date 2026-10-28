@@ -1,3 +1,4 @@
+import { Liquid, type Template } from "liquidjs";
 import type z from "zod";
 import { Message, StopReason, ToolResultBlock } from "../model/message.js";
 import { ModelRequest, type ModelClient } from "../model/model-client.js";
@@ -31,10 +32,13 @@ export class AgentResult<O> {
     }
 }
 
+export type AgentContext = Readonly<Record<string, unknown>>;
+
 export type AgentOptions<O> = {
     readonly client: ModelClient;
     readonly tools: ToolSet;
     readonly systemPrompt: string | null;
+    readonly context?: AgentContext;
     readonly outputSchema: z.ZodType<O> | null;
     readonly outputDescription: string;
     readonly maxTurns: number;
@@ -50,16 +54,35 @@ const SUBMIT_INSTRUCTION =
     "When you have the final answer, call the submit_result tool exactly once with it. Do not write the answer as plain text.";
 
 export class Agent<O = string> {
-    public constructor(private readonly options: AgentOptions<O>) {}
+    private readonly promptEngine = new Liquid({
+        strictVariables: true,
+        strictFilters: true,
+        lenientIf: true,
+        ownPropertyOnly: true,
+        templates: {},
+        parseLimit: 1_000_000,
+        renderLimit: 1_000,
+        memoryLimit: 1_000_000,
+    });
+    private readonly prompt: Template[] | null;
+    private readonly context: AgentContext;
 
-    public async run(input: string): Promise<Result<AgentResult<O>, AgentError>> {
-        return this.runConversation([Message.user(input)]);
+    public constructor(private readonly options: AgentOptions<O>) {
+        this.prompt = options.systemPrompt ? this.promptEngine.parse(options.systemPrompt) : null;
+        this.context = { ...options.context };
+    }
+
+    public async run(input: string, context: AgentContext = {}): Promise<Result<AgentResult<O>, AgentError>> {
+        return this.runConversation([Message.user(input)], context);
     }
 
     /** Continues from an existing transcript, e.g. `AgentResult.transcript` plus a new user message. */
-    public async runConversation(conversation: readonly Message[]): Promise<Result<AgentResult<O>, AgentError>> {
+    public async runConversation(
+        conversation: readonly Message[],
+        context: AgentContext = {},
+    ): Promise<Result<AgentResult<O>, AgentError>> {
         try {
-            return Result.ok(await this.loop(conversation));
+            return Result.ok(await this.loop(conversation, context));
         } catch (error) {
             if (error instanceof AgentError) {
                 return Result.err(error);
@@ -68,16 +91,17 @@ export class Agent<O = string> {
         }
     }
 
-    private async loop(conversation: readonly Message[]): Promise<AgentResult<O>> {
+    private async loop(conversation: readonly Message[], context: AgentContext): Promise<AgentResult<O>> {
         const { client, tools, outputSchema, maxTurns, maxTokens, maxOutputRetries } = this.options;
         const transcript = [...conversation];
         const specs = this.requestTools();
+        const systemPrompt = this.systemPrompt(context);
         let forcedTool: string | null = null;
         let outputFailures = 0;
 
         for (let turn = 1; turn <= maxTurns; turn++) {
             const response = await client.complete(
-                new ModelRequest(this.systemPrompt(), transcript, specs, maxTokens, forcedTool),
+                new ModelRequest(systemPrompt, transcript, specs, maxTokens, forcedTool),
             );
             forcedTool = null;
             transcript.push(response.message);
@@ -149,10 +173,17 @@ export class Agent<O = string> {
         return specs;
     }
 
-    private systemPrompt(): string | null {
-        const { systemPrompt, groundingInstruction, outputSchema, tools } = this.options;
+    private systemPrompt(context: AgentContext): string | null {
+        const { groundingInstruction, outputSchema, tools } = this.options;
         const parts: string[] = [];
-        if (systemPrompt) parts.push(systemPrompt);
+        if (this.prompt) {
+            const rendered: string = this.promptEngine.renderSync(this.prompt, {
+                ...this.context,
+                ...context,
+                tools: tools.names(),
+            });
+            if (rendered) parts.push(rendered);
+        }
         if (groundingInstruction && (outputSchema || tools.names().length > 0)) parts.push(GROUNDING_INSTRUCTION);
         if (outputSchema) parts.push(SUBMIT_INSTRUCTION);
         return parts.length > 0 ? parts.join("\n\n") : null;

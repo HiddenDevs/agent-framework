@@ -3,6 +3,7 @@
 This fully offline project demonstrates two extension points: implement `ModelClient` for a custom inference
 backend, and provide a `ToolFactory` to inject app services into a tool. A deterministic local client simulates a
 tool call followed by a final answer, so running it needs no provider SDK, API key, or network.
+The agent also shows a Liquid system prompt with builder context defaults and a per-run user override.
 
 ## Setup
 
