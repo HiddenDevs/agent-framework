@@ -59,3 +59,65 @@ including tools registered before the scan or through imported dependencies.
 Repeated scans use the runtime's module cache and do not rerun decorators.
 Consequently, clearing the registry does not make already imported modules
 register again; registry clearing is intended for test isolation, not hot reload.
+
+## Running agents from configuration
+
+Agents are described by plain config and built by `AgentFramework`. Tools under
+`toolPaths` are discovered, linted, and selected by name.
+
+```ts
+import { AgentFramework } from "@hiddendevs/agent-framework";
+
+const framework = await AgentFramework.create(
+    {
+        toolPaths: ["./dist/tools"],
+        providers: { main: { provider: "anthropic", model: "<model>", apiKey: process.env.API_KEY! } },
+        agents: {
+            researcher: {
+                provider: "main",
+                systemPrompt: "Use tools to answer. Available: ${tools}",
+                tools: ["search"],
+                outputSchema: {
+                    type: "object",
+                    required: ["answer"],
+                    properties: { answer: { type: "string", description: "The final answer" } },
+                },
+            },
+        },
+    },
+    // toolFactory: (ToolClass) => new ToolClass(services), // for tools with dependencies
+);
+
+const result = await (await framework.agent("researcher")).run("What is ...?");
+if (result.isOk) console.log(result.value.output);
+```
+
+Tool failures, invalid arguments and invalid structured output are returned to the
+model as error results so it can correct itself. `Result` is an error only when the
+run exhausts its budget (`AgentError`, which carries the transcript).
+`@anthropic-ai/sdk` and `openai` are optional peer dependencies; install the one you use.
+
+### Registering agents at runtime
+
+Agents can be added, replaced and removed on a running framework, e.g. from a generic
+"create agent" endpoint. Registration validates the whole config (schema, provider, tool
+names, output schema) and returns a `Result` instead of throwing.
+
+```ts
+const created = framework.registerAgent("support-bot", requestBody, { replace: false });
+if (!created.isOk) return respond(400, created.error.message);
+
+framework.hasAgent("support-bot");
+framework.unregisterAgent("support-bot");
+framework.registerProvider("backup", { provider: "openai", model: "<model>", apiKey });
+```
+
+Registered agents can only reference tools and providers that already exist, so config
+from untrusted callers cannot run new code. `framework.loadTools(paths)` imports (and
+executes) modules, so call it only with trusted paths. Registrations live in memory;
+persist the configs yourself if they must survive a restart.
+
+## Documentation
+
+Full documentation lives in [docs/](docs/README.md): getting started, architecture, tools, agents,
+configuration, runtime registration, providers, error handling and testing.
