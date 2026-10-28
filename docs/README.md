@@ -20,7 +20,7 @@ correct itself, and the agent loop is independent of any one model provider.
 | [Architecture](./architecture.md)                 | How the pieces fit together and the design rules behind them                   |
 | [Tools](./tools.md)                               | Creating, discovering, injecting dependencies into, linting and running tools  |
 | [Agents](./agents.md)                             | The agent loop, builder, structured output, transcripts and limits             |
-| [Configuration](./configuration.md)               | Framework, provider and agent config, including the output schema dialect      |
+| [Configuration](./configuration.md)               | Framework, provider and agent config, including JSON Schema output validation  |
 | [Runtime registration](./runtime-registration.md) | Adding and removing agents on a running process (for example from an endpoint) |
 | [Providers](./providers.md)                       | Anthropic and OpenAI adapters, dialects, and writing your own `ModelClient`    |
 | [Error handling](./error-handling.md)             | What is returned as data, what throws, and how to handle each                  |

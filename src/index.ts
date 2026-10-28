@@ -24,8 +24,6 @@ export type { AgentConfig, AgentConfigInput } from "./agent/agent-factory.js";
 export { Agent, AgentError, AgentResult, GROUNDING_INSTRUCTION } from "./agent/agent.js";
 export type { AgentContext, AgentOptions } from "./agent/agent.js";
 
-export { JsonSchemaLoader } from "./schema/json-schema-loader.js";
-
 export { AnthropicClient } from "./providers/anthropic/anthropic-client.js";
 export { AnthropicDialect } from "./providers/anthropic/anthropic-dialect.js";
 export { JsonSchemaUtil } from "./providers/json-schema-util.js";

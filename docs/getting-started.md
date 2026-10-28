@@ -120,7 +120,7 @@ const result = await (await framework.agent("classifier")).run("The app crashes 
 console.log(result.value.output); // { label: "bug", confidence: 0.93 }
 ```
 
-The full output-schema dialect is described in [Configuration](./configuration.md#output-schema-dialect).
+Output schema conversion and validation are described in [Configuration](./configuration.md#output-schemas).
 
 ## Building an agent in code instead
 

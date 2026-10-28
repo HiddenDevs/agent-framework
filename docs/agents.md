@@ -112,6 +112,10 @@ if (result.isOk) result.value.output.action; // typed
 
 Without `output`, the agent is an `Agent<string>` and `output` is the model's final text.
 
+Config-driven agents convert their JSON Schema output definitions with `z.fromJSONSchema()`. They follow Zod's
+conversion behavior without implicit integer coercion or optional-field nullability. See
+[Output schemas](./configuration.md#output-schemas) for supported features and migration notes.
+
 ## Running
 
 ```ts

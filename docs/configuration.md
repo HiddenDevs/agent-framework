@@ -84,35 +84,31 @@ reject the run unless handled with a conditional or `default` filter. See
 
 **Migration:** replace `${tools}` with `{{ tools | json }}` in stored prompts as well as code.
 
-## Output schema dialect
+## Output schemas
 
-`outputSchema` is a deliberately **limited** subset of JSON Schema. `JsonSchemaLoader.fromJson(json)` compiles
-it into Zod. Anything outside the subset is rejected with a path such as
-`Invalid schema at #/properties/age/format: unsupported keyword "format"`, so mistakes are found when the agent
-is built, not at model time.
+`outputSchema` is a JSON Schema object converted directly with Zod's
+[`z.fromJSONSchema()`](https://zod.dev/json-schema). There is no framework-specific schema dialect or keyword
+allowlist. The resulting Zod schema validates `submit_result` arguments and is converted back to JSON Schema
+for the model provider. The converted schema must have an object root.
 
-Allowed on every node: `type`, `description`, `default`.
+Zod determines supported keywords, formats and conversion errors. It supports features such as `anyOf`, `oneOf`
+and local `$ref`/`$defs`, but not every JSON Schema construct (for example, conditional `if`/`then`/`else`
+schemas and external references are unsupported). Provider capabilities may impose further restrictions.
+Zod currently labels `fromJSONSchema` semi-experimental; behavior can change with Zod versions.
 
-| `type`    | Extra keywords                                        | Zod result                                                           |
-| --------- | ----------------------------------------------------- | -------------------------------------------------------------------- |
-| `string`  | `minLength`, `maxLength`, `pattern`, `format`, `enum` | `z.string()` with checks, or `z.enum` (all values must be strings)   |
-| `number`  | `minimum`, `maximum`, `x-coerceStrings`               | `z.number()`; with `x-coerceStrings: true`, numeric strings accepted |
-| `integer` | `minimum`, `maximum`, `x-coerceStrings`               | `z.coerce.number().int()` (numeric strings always accepted)          |
-| `boolean` | none                                                  | `z.boolean()`                                                        |
-| `array`   | `items` (required), `minItems`, `maxItems`            | `z.array(...)`                                                       |
-| `object`  | `properties`, `required`, `additionalProperties`      | `z.object` / `z.strictObject` / `z.looseObject`                      |
+Important semantics:
 
-Details:
-
-- **Nullable:** `"type": ["string", "null"]` allows `null`. Only one concrete type plus `"null"` is allowed.
-- **`format`:** `"email"` (a loose `x@y.z` check) or `"date"` (ISO-8601 date or date-time).
-- **`pattern`:** a JavaScript regular expression source.
-- **Objects:** every name in `required` must exist in `properties`. Properties not listed in `required` are
-  optional: absent or `null` is accepted. A property with a `default` is optional and the default applies when
-  the value is absent.
-- **`additionalProperties`:** `false` rejects unknown keys, `true` keeps them, omitted strips them.
-- **`default`:** validated against the node's own schema at load time; an invalid default is an error.
-- **Conflicts:** `minLength` greater than `maxLength` is rejected.
+- **Numbers:** `integer` and `number` require numeric values; strings are not coerced.
+- **Optional versus nullable:** omitting a property from `required` permits absence, not `null`.
+  Allow null explicitly with, for example, `"type": ["string", "null"]`.
+- **Formats:** use `"format": "date"` for date-only strings and `"format": "date-time"` for timestamps.
+  Email validation uses Zod's built-in format rules.
+- **Additional properties:** omitted or `true` preserves unknown keys; `false` rejects them.
+- **Defaults:** Zod applies defaults without validating them against the field schema. Authors must provide
+  valid defaults.
+- **Extension keywords:** unknown keywords can be retained as metadata without enforcing a validation rule.
+  Conversion is not a full JSON Schema meta-schema validation step; validate schema authors' input separately
+  if you need to detect typos or invalid schemas.
 
 Example:
 
@@ -131,8 +127,20 @@ Example:
 }
 ```
 
-Need something outside the subset (unions, `$ref`, `oneOf`)? Build the agent in code with `AgentBuilder.output(zodSchema)`.
-Note that the output schema must have a root of `type: "object"`.
+For code-first validation, including coercions, build with `AgentBuilder.output(zodSchema)` instead. The Zod
+schema must still be representable as an object-root JSON Schema for provider requests.
+
+### Migration from the custom loader
+
+This is a breaking change. The exported `JsonSchemaLoader` has been removed; use `z.fromJSONSchema()` directly
+when converting schemas outside the framework.
+
+- Replace integer strings with numbers; `x-coerceStrings` no longer enables coercion.
+- Explicitly declare nullable fields where callers previously passed `null` for optional properties.
+- Set `additionalProperties: false` to reject unexpected keys; omission no longer strips them.
+- Use `date-time` instead of `date` for timestamps and review email values against Zod's format rules.
+- Check defaults yourself; conversion no longer rejects invalid defaults.
+- Do not rely on the former keyword allowlist or JSON-pointer-style error messages.
 
 ## Where configuration comes from
 

@@ -27,6 +27,10 @@ await framework.agent(name): Agent                       // build and use
 5. The agent can actually be built: every tool name is registered and passes lint, limits are in range, and the
    `outputSchema` compiles and the Liquid prompt parses (including filter validation).
 
+Output schemas are converted using Zod's `fromJSONSchema`; conversion is not full JSON Schema meta-schema
+validation and does not reject every unknown keyword or invalid default. See
+[Output schemas](./configuration.md#output-schemas).
+
 It returns a `Result`. On failure `result.error.message` describes the first problem and **nothing is stored**.
 On success `result.value` is the parsed config, with defaults applied. Registration never contacts a model
 provider or creates an SDK client.

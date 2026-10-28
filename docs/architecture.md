@@ -25,7 +25,7 @@ flowchart TD
 | Model types    | `src/model/`                                    | Provider-agnostic messages, content blocks, request/response, `ModelClient`       |
 | Agent runtime  | `src/agent/`                                    | The loop, the builder, config-to-agent factory                                    |
 | Providers      | `src/providers/`                                | SDK adapters and dialects                                                         |
-| Config schemas | `src/schema/json-schema-loader.ts`              | Compiles persisted JSON Schema into Zod                                           |
+| Config schemas | `src/agent/agent-factory.ts`                    | Uses Zod's `fromJSONSchema` to compile configured output schemas                  |
 | Entry point    | `src/agent-framework.ts`                        | Config loading, runtime registration, agent construction                          |
 
 ## Design rules
@@ -84,5 +84,5 @@ Details of each branch are in [Agents: the loop](./agents.md#the-loop).
 
 ## Non-goals
 
-Streaming, multi-agent orchestration, recursive (`$ref`/`$defs`) output schemas and a persistence layer for
-runtime-registered agents are not implemented.
+Streaming, multi-agent orchestration and a persistence layer for runtime-registered agents are not implemented.
+JSON Schema conversion follows Zod's supported features; model providers may impose additional restrictions.

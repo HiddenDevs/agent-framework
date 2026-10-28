@@ -97,6 +97,130 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
         await expect(framework.agent("a")).rejects.toThrow();
     });
 
+    describe("JSON Schema output", () => {
+        const run = async (outputSchema: Record<string, unknown>, submission: Record<string, unknown>) => {
+            const requests: ModelRequest[] = [];
+            const framework = await AgentFramework.create(
+                {
+                    providers: { main: provider },
+                    agents: { a: { provider: "main", outputSchema, maxOutputRetries: 0 } },
+                },
+                {
+                    clientFactory: async () => ({
+                        complete: async (request) => {
+                            requests.push(request);
+                            return new ModelResponse(
+                                Message.assistant([new ToolCallBlock("1", "submit_result", submission)]),
+                                StopReason.TOOL_USE,
+                            );
+                        },
+                    }),
+                },
+            );
+            const result = await (await framework.agent("a")).run("q");
+            return { result, requests };
+        };
+
+        const schema = {
+            type: "object",
+            required: ["name"],
+            additionalProperties: false,
+            properties: {
+                name: { type: "string", minLength: 1, maxLength: 5, description: "Name" },
+                age: { type: "integer", minimum: 0 },
+                kind: { type: "string", enum: ["a", "b"], default: "a" },
+                tags: { type: "array", items: { type: "string" }, maxItems: 2 },
+                note: { type: ["string", "null"] },
+            },
+        };
+
+        it("converts config schemas for both validation and the advertised submit tool", async () => {
+            const { result, requests } = await run(schema, { name: "Ada", age: 3, tags: ["x"], note: null });
+            expect(result.value.output).toEqual({ name: "Ada", age: 3, kind: "a", tags: ["x"], note: null });
+            const advertised = z.toJSONSchema(requests[0]!.tools[0]!.inputSchema, { io: "input" });
+            expect(advertised).toMatchObject({
+                type: "object",
+                additionalProperties: false,
+                properties: {
+                    name: { type: "string", minLength: 1, maxLength: 5, description: "Name" },
+                    age: { type: "integer", minimum: 0 },
+                },
+            });
+        });
+
+        it.each([
+            { name: "" },
+            { name: "Ada", age: "3" },
+            { name: "Ada", age: 1.5 },
+            { name: "Ada", age: -1 },
+            { name: "Ada", age: null },
+            { name: "Ada", extra: 1 },
+            { name: "Ada", tags: ["a", "b", "c"] },
+            { name: "Ada", kind: "other" },
+        ])("rejects invalid submissions without custom coercion or implicit nullability: %j", async (input) => {
+            const { result } = await run(schema, input);
+            expect(result.isOk).toBe(false);
+            expect(result.error.message).toBe("Model submitted invalid results 1 times");
+        });
+
+        it("preserves additional properties by default, following JSON Schema semantics", async () => {
+            const { result } = await run(
+                { type: "object", properties: { name: { type: "string" } } },
+                { name: "Ada", extra: 1 },
+            );
+            expect(result.value.output).toEqual({ name: "Ada", extra: 1 });
+        });
+
+        it("supports local references and unions in config", async () => {
+            const { result } = await run(
+                {
+                    type: "object",
+                    required: ["value"],
+                    $defs: { answer: { anyOf: [{ type: "string" }, { type: "integer" }] } },
+                    properties: { value: { $ref: "#/$defs/answer" } },
+                },
+                { value: 42 },
+            );
+            expect(result.value.output).toEqual({ value: 42 });
+        });
+
+        it("does not enforce extension keywords or legacy x-coerceStrings", async () => {
+            const outputSchema = {
+                type: "object",
+                required: ["value"],
+                properties: { value: { type: "number", "x-coerceStrings": true, customAnnotation: "metadata" } },
+            };
+            const valid = await run(outputSchema, { value: 3 });
+            expect(valid.result.value.output).toEqual({ value: 3 });
+            const invalid = await run(outputSchema, { value: "3" });
+            expect(invalid.result.isOk).toBe(false);
+        });
+
+        it("uses Zod defaults without custom build-time validation", async () => {
+            const { result } = await run(
+                { type: "object", properties: { kind: { type: "string", enum: ["a"], default: "z" } } },
+                {},
+            );
+            expect(result.value.output).toEqual({ kind: "z" });
+        });
+
+        it.each([
+            ["2026-10-28", true],
+            ["2026-10-28T12:00:00Z", false],
+            ["not-a-date", false],
+        ])("uses the built-in date format for %s", async (value, valid) => {
+            const { result } = await run(
+                {
+                    type: "object",
+                    required: ["date"],
+                    properties: { date: { type: "string", format: "date" } },
+                },
+                { date: value },
+            );
+            expect(result.isOk).toBe(valid);
+        });
+    });
+
     describe("runtime registration", () => {
         const make = async () => {
             const echo = z.object({ msg: z.string().describe("message") });
@@ -159,7 +283,9 @@ export const Echo = AgentTool({ name: "echo", description: "Echo", inputValidati
                 [{ provider: "main", context: [] }, /Invalid agent config/],
                 [{ provider: "main", systemPrompt: "{% if broken %}" }, /not closed/],
                 [{ provider: "main", systemPrompt: "{{ tools | not_a_filter }}" }, /undefined filter/],
-                [{ provider: "main", outputSchema: { type: "string", bogus: 1 } }, /unsupported keyword/],
+                [{ provider: "main", outputSchema: { type: "string" } }, /object schema/],
+                [{ provider: "main", outputSchema: { type: "banana" } }, /Unsupported type/],
+                [{ provider: "main", outputSchema: { type: "object", if: {}, then: {} } }, /Conditional schemas/],
             ];
             for (const [config, message] of cases) {
                 const result = framework.registerAgent("bad", config);

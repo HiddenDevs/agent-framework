@@ -98,6 +98,9 @@ model as error results so it can correct itself. `Result` is an error only when 
 run exhausts its budget (`AgentError`, which carries the transcript).
 `@anthropic-ai/sdk` and `openai` are optional peer dependencies; install the one you use.
 
+Configured output schemas are converted using Zod's built-in `z.fromJSONSchema()`, without a custom dialect.
+See [Output schemas and migration notes](docs/configuration.md#output-schemas) for validation semantics.
+
 ### Prompt templates and context
 
 System prompts use [LiquidJS](https://liquidjs.com/) for variables, filters, loops and conditionals:

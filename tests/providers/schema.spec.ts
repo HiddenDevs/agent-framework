@@ -1,6 +1,6 @@
 import z from "zod";
 
-import { JsonSchemaLoader, JsonSchemaUtil, OpenAiStrictDialect } from "@hiddendevs/agent-framework";
+import { JsonSchemaUtil, OpenAiStrictDialect } from "@hiddendevs/agent-framework";
 
 describe("OpenAiStrictDialect", () => {
     const schema = z.object({
@@ -42,44 +42,5 @@ describe("JsonSchemaUtil.makeNullable", () => {
             enum: ["a", null],
         });
         expect(JsonSchemaUtil.makeNullable({ anyOf: [] })).toEqual({ anyOf: [{ anyOf: [] }, { type: "null" }] });
-    });
-});
-
-describe("JsonSchemaLoader", () => {
-    it("compiles supported keywords", () => {
-        const schema = JsonSchemaLoader.fromJson({
-            type: "object",
-            required: ["name"],
-            additionalProperties: false,
-            properties: {
-                name: { type: "string", minLength: 1, maxLength: 5, description: "n" },
-                email: { type: "string", format: "email" },
-                age: { type: "integer", minimum: 0 },
-                kind: { type: "string", enum: ["a", "b"], default: "a" },
-                tags: { type: "array", items: { type: "string" }, maxItems: 2 },
-                note: { type: ["string", "null"] },
-            },
-        });
-        expect(schema.safeParse({ name: "bob", age: "3", tags: ["x"], note: null }).data).toMatchObject({ age: 3 });
-        expect(schema.safeParse({ name: "" }).success).toBe(false);
-        expect(schema.safeParse({ name: "bob", email: "nope" }).success).toBe(false);
-        expect(schema.safeParse({ name: "bob", extra: 1 }).success).toBe(false);
-        expect(schema.safeParse({ name: "bob", tags: ["a", "b", "c"] }).success).toBe(false);
-    });
-
-    it.each([
-        [{ type: "string", bogus: 1 }, /unsupported keyword "bogus"/],
-        [{ type: "string", minLength: 5, maxLength: 1 }, /minLength is greater/],
-        [{ type: "object", properties: {}, required: ["x"] }, /required/],
-        [{ type: "string", enum: ["a"], default: "z" }, /default does not satisfy/],
-        [{ type: "banana" }, /type/],
-    ])("rejects %j", (json, message) => {
-        expect(() => JsonSchemaLoader.fromJson(json)).toThrow(message);
-    });
-
-    it("reports a JSON-pointer-style path", () => {
-        expect(() =>
-            JsonSchemaLoader.fromJson({ type: "object", properties: { a: { type: "string", nope: true } } }),
-        ).toThrow("#/properties/a/nope");
     });
 });

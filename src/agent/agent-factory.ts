@@ -1,6 +1,5 @@
 import z from "zod";
 import type { ModelClient } from "../model/model-client.js";
-import { JsonSchemaLoader } from "../schema/json-schema-loader.js";
 import type { ToolFactory } from "../tools/tool-registry.js";
 import { AgentBuilder } from "./agent-builder.js";
 import type { Agent } from "./agent.js";
@@ -40,7 +39,7 @@ export class AgentFactory {
         if (config.groundingInstruction !== undefined)
             builder = builder.groundingInstruction(config.groundingInstruction);
         if (config.outputSchema !== undefined) {
-            builder = builder.output(JsonSchemaLoader.fromJson(config.outputSchema), config.outputDescription);
+            builder = builder.output(z.fromJSONSchema(config.outputSchema), config.outputDescription);
         }
         return builder.build();
     }
