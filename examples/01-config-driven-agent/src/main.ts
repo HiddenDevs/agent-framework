@@ -1,5 +1,5 @@
-import { resolve } from "node:path";
 import { AgentFramework } from "@hiddendevs/agent-framework";
+import { resolve } from "node:path";
 
 const apiKey = process.env.ANTHROPIC_API_KEY;
 if (!apiKey) {

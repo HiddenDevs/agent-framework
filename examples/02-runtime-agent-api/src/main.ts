@@ -1,6 +1,6 @@
+import { AgentFramework, ModelClientError } from "@hiddendevs/agent-framework";
 import { createServer, type IncomingMessage, type ServerResponse } from "node:http";
 import { resolve } from "node:path";
-import { AgentFramework, ModelClientError } from "@hiddendevs/agent-framework";
 
 const apiKey = process.env.OPENAI_API_KEY;
 const accessToken = process.env.AGENT_API_TOKEN;
